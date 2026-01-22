@@ -1,10 +1,9 @@
 ---
 name: "♻️ Refactor"
-about: 코드 리팩토링을 위한 이슈입니다.
+about: "코드 리팩토링을 위한 이슈입니다."
 title: "[Refactor] "
-labels: ''
-assignees: ''
-
+labels: ["refactor"]
+assignees: ""
 ---
 
 ## Issue : ♻️ Refactor

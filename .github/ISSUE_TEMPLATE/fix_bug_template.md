@@ -1,10 +1,9 @@
 ---
-name: "\U0001F41E Fix / Bug"
-about: 버그 및 오류 해결을 위한 이슈입니다.
+name: "🐞 Fix / Bug"
+about: "버그 및 오류 해결을 위한 이슈입니다."
 title: "[Fix] "
-labels: ''
-assignees: ''
-
+labels: ["fix"]
+assignees: ""
 ---
 
 ## 1. Issue : 🐞 Fix / Bug

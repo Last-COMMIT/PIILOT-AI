@@ -1,10 +1,9 @@
 ---
 name: "✅ Feature"
-about: 새로운 기능 구현을 위한 이슈입니다.
+about: "새로운 기능 구현을 위한 이슈입니다."
 title: "[Feat] "
-labels: ''
-assignees: ''
-
+labels: ["feat"]
+assignees: ""
 ---
 
 ## Issue : ✅ Feature
