@@ -24,10 +24,10 @@ class EncryptionCheckRequest(BaseModel):
     """암호화 여부 확인 요청"""
     data_samples: List[Dict]
     # 예: [
-    #   {"column": "users.password", "sample": "aB3$kL9mN2..."},
-    #   ...
+    #   {"connection_id": "1", "table_name": "sdb4_a_counsel_log", "column_name": "counselor_nm"},
+    #   {"connection_id": "1", "table_name": "sdb4_a_cust_detail", "column_name": "cust_nm"},
+    # ...
     # ]
-
 
 # ========== File AI 요청 ==========
 

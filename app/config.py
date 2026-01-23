@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     
     # Database
-    DATABASE_URL: str = "postgresql://user:password@localhost:5432/piilot"
+    DATABASE_URL: str = "postgresql+psycopg://kt_user:1q2w3e4r@localhost/kt_db"
     
     # OpenAI
     OPENAI_API_KEY: str = ""

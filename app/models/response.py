@@ -23,8 +23,8 @@ class ColumnDetectionResponse(BaseModel):
 class EncryptionCheckResult(BaseModel):
     """암호화 여부 확인 결과"""
     column: str
-    is_encrypted: bool
-    confidence: float
+    total_records: int
+    encrypted_records: int
 
 
 class EncryptionCheckResponse(BaseModel):
