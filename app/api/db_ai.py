@@ -49,26 +49,33 @@ async def check_encryption(request: EncryptionCheckRequest):
     분류 모델로 암호화 여부를 판단
     """
     try:
-        logger.info(f"암호화 확인 요청: {len(request.data_samples)}개 샘플")
+        logger.info(f"암호화 확인 요청: {len(request.data_samples)}개 컬럼 암호화 여부 확인")
         
         results = []
-        for sample in request.data_samples:
-            column = sample.get("column")
-            data_sample = sample.get("sample", "")
+        for db_info in request.data_samples:
+            connection_id = str(db_info.get("connection_id"))
+            table_name = db_info.get("table_name")
+            column_name = db_info.get("column_name")
             
-            is_encrypted = encryption_classifier.is_encrypted(data_sample)
-            classification_result = encryption_classifier.classify(data_sample)
-            confidence = classification_result.get("encrypted", 0.0) if is_encrypted else classification_result.get("plain", 0.0)
+            if not all([connection_id, table_name, column_name]):
+                logger.warning(f"필수 파라미터 누락: {db_info}")
+                continue
+            
+            classification_result = encryption_classifier.classify(
+                connection_id=connection_id,
+                table_name=table_name,
+                column_name=column_name
+            )
             
             results.append({
-                "column": column,
-                "is_encrypted": is_encrypted,
-                "confidence": confidence
+                "column": f"{table_name}.{column_name}",
+                "total_records": classification_result.get("total_records", 0),
+                "encrypted_records": classification_result.get("encrypted_records", 0)
             })
         
         return EncryptionCheckResponse(results=results)
     
     except Exception as e:
-        logger.error(f"암호화 확인 오류: {str(e)}")
+        logger.error(f"암호화 확인 오류: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
