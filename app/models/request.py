@@ -78,5 +78,5 @@ class ChatRequest(BaseModel):
 class RegulationSearchRequest(BaseModel):
     """법령 검색 요청"""
     query: str  # 검색 쿼리
-    n_results: Optional[int] = 5  # 반환할 결과 수
-
+    n_results: Optional[int] = 10  # 검색할 결과 수
+    top_n: Optional[int] = 5  # Reranking 후 상위 N개 문서 선택

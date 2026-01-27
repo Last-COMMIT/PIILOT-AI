@@ -12,10 +12,13 @@ pydantic-settings>=2.6.0
 # AI/ML Libraries
 langchain>=1.0.0
 langchain-openai>=0.2.0
+langchain-huggingface>=0.2.0
 openai>=1.54.0
 transformers>=4.46.0
 torch>=2.5.0
 sentence-transformers>=3.0.0
+accelerate
+flashrank
 
 # Vector Database (PostgreSQL + pgvector)
 sqlalchemy>=2.0.25
@@ -32,6 +35,8 @@ mediapipe>=0.10.0  # 더 간단한 얼굴 인식 라이브러리
 # Audio Processing
 openai-whisper>=20241122
 librosa>=0.10.3
+faster-whisper
+pydub
 
 # Video Processing
 moviepy>=1.0.3
