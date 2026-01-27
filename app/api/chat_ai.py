@@ -5,13 +5,14 @@ from fastapi import APIRouter, HTTPException
 from app.models.request import ChatRequest, RegulationSearchRequest
 from app.models.response import ChatResponse, RegulationSearchResponse
 from app.services.chat.assistant import AIAssistant
+from app.services.chat.regulation_search import RegulationSearch
 from app.utils.logger import logger
 
 router = APIRouter()
 
 # 서비스 인스턴스
 assistant = AIAssistant()
-
+regulation_search = RegulationSearch()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
@@ -50,12 +51,23 @@ async def search_regulations(request: RegulationSearchRequest):
     try:
         logger.info(f"법령 검색: {request.query}")
         
-        results = await assistant.search_regulations(
+        results = regulation_search.respond(
             query=request.query,
-            n_results=request.n_results
+            n_results=request.n_results,
+            top_n=request.top_n
         )
         
-        return RegulationSearchResponse(results=results)
+        # RegulationSearchResult 리스트로 변환
+        from app.models.response import RegulationSearchResult
+        sources = [
+            RegulationSearchResult(**source) 
+            for source in results.get("sources", [])
+        ]
+        
+        return RegulationSearchResponse(
+            answer=results.get("answer", ""),
+            sources=sources
+        )
     
     except Exception as e:
         logger.error(f"법령 검색 오류: {str(e)}")

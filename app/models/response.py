@@ -93,12 +93,15 @@ class ChatResponse(BaseModel):
 
 class RegulationSearchResult(BaseModel):
     """법령 검색 결과"""
-    text: str  # 법령 텍스트
-    source: str  # 출처
-    score: float  # 유사도 점수
+    document_title: str  # 법령 제목
+    content: str  # 법령 내용
+    article: str  # 법령 조항
+    page: str  # 법령 페이지
+    similarity: float  # 유사도 점수
 
 
 class RegulationSearchResponse(BaseModel):
     """법령 검색 응답"""
-    results: List[RegulationSearchResult]
+    answer: str  # AI 응답
+    sources: List[RegulationSearchResult]  # 참고 문서 리스트
 

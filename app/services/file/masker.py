@@ -5,6 +5,8 @@ import numpy as np
 from typing import List, Dict
 from docx import Document
 from app.utils.logger import logger
+from app.utils.image_loader import load_image
+from app.services.file.audio_masking import audio_pii_service
 
 # Helper for image loading (simulating app.utils.image_loader)
 def load_image(image_path: str):
@@ -81,14 +83,30 @@ class Masker:
         # 이미지를 bytes로 변환
         _, encoded_img = cv2.imencode('.jpg', img)
         return encoded_img.tobytes()
-
-    def mask_audio(self, audio_path: str, detected_items: list) -> bytes:
+    
+    def mask_audio(self, audio_data: str, detected_items: list) -> bytes:
         """
         음성 마스킹 (개인정보 부분 음소거 또는 변조)
+        
+        Args:
+            audio_data: 음성 파일 경로 또는 base64 인코딩된 오디오 데이터
+            detected_items: 탐지된 개인정보 리스트
+            
+        Returns:
+            마스킹된 오디오 (bytes)
         """
-        # TODO: 구현 필요
-        logger.info(f"음성 마스킹: {len(detected_items)}개 항목")
-        pass
+        try:
+            logger.info(f"음성 마스킹 시작: {len(detected_items)}개 항목")
+            
+            # 오디오 마스킹 서비스 사용
+            masked_bytes = audio_pii_service.mask_audio(audio_data, detected_items)
+            
+            logger.info("음성 마스킹 완료")
+            return masked_bytes
+            
+        except Exception as e:
+            logger.error(f"음성 마스킹 중 오류 발생: {str(e)}")
+            raise e
     
     def mask_video(self, video_path: str, faces: list, audio_items: list) -> bytes:
         """
