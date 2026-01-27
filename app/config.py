@@ -1,9 +1,19 @@
 """
 애플리케이션 설정 관리
 """
+import os
+import sys
 from pydantic_settings import BaseSettings
 from typing import List
 
+# Import PII constants from models
+try:
+    from app.models.personal_info import PII_CATEGORIES, PII_NAMES, CONFIDENCE_THRESHOLDS
+except ImportError:
+    # Fallback/Safety check
+    PII_CATEGORIES = []
+    PII_NAMES = {}
+    CONFIDENCE_THRESHOLDS = {}
 
 class Settings(BaseSettings):
     # Application
@@ -42,6 +52,10 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+
+    # --- PII Detector Settings ---
+    PII_MODEL_PATH: str = "ParkJunSeong/PIILOT_NER_Model"
+    PII_OUTPUT_DIR: str = "./output_file"
     
     class Config:
         env_file = ".env"
@@ -50,3 +64,7 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+MODEL_PATH = settings.PII_MODEL_PATH
+OUTPUT_DIR = settings.PII_OUTPUT_DIR
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)

@@ -24,5 +24,3 @@ CONFIDENCE_THRESHOLDS = {
     "p_pp": 0.75,    # 여권번호
     "p_em": 0.70     # 이메일
 }
-
-DEFAULT_MODEL_PATH = "ParkJunSeong/PIILOT_NER_Model"
