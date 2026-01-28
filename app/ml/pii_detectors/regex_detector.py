@@ -1,0 +1,198 @@
+"""
+통합 정규식 PII 탐지기
+(기존 detectors/regex_detector.py + audio_masking.py의 EnhancedRegexPIIDetector 병합)
+"""
+import re
+from typing import List, Dict
+
+
+class GeneralizedRegexPIIDetector:
+    """일반화된 정규식 PII 탐지기 (문서/오디오 공통)"""
+
+    def detect_phones(self, text: str) -> List[Dict]:
+        """전화번호 탐지"""
+        entities = []
+        seen = set()
+        patterns = [
+            (r'01[016789]-\d{3,4}-\d{4}', 'mobile'),
+            (r'0(?:2|3[1-3]|4[1-4]|5[1-5]|6[1-4])-\d{3,4}-\d{4}', 'landline'),
+            (r'0\d{1,2}-\d{3,4}-\d{4}', 'general'),
+            (r'01[016789]\d{7,8}', 'mobile-no-hyphen'),
+        ]
+        for pattern, phone_type in patterns:
+            for match in re.finditer(pattern, text):
+                phone = match.group()
+                digits = re.sub(r'\D', '', phone)
+                if 9 <= len(digits) <= 11 and digits not in seen:
+                    seen.add(digits)
+                    entities.append({
+                        'text': phone,
+                        'label': 'p_ph',
+                        'start': match.start(),
+                        'end': match.end(),
+                        'confidence': 1.0,
+                        'method': f'regex-{phone_type}',
+                    })
+        return entities
+
+    def detect_emails(self, text: str) -> List[Dict]:
+        """이메일 탐지"""
+        entities = []
+        standard_pattern = r'[a-zA-Z0-9][a-zA-Z0-9._+-]*@[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}'
+        for match in re.finditer(standard_pattern, text):
+            entities.append({
+                'text': match.group(),
+                'label': 'p_em',
+                'start': match.start(),
+                'end': match.end(),
+                'confidence': 1.0,
+                'method': 'regex-standard',
+            })
+
+        # OCR 오류 패턴
+        ocr_pattern = r'[a-zA-Z0-9][a-zA-Z0-9._+-]*@[a-zA-Z0-9]+(?:com|net|org|co\.?kr|kr|jp|cn|edu|gov)'
+        for match in re.finditer(ocr_pattern, text):
+            if any(e['start'] == match.start() for e in entities):
+                continue
+            email_text = match.group()
+            domain_part = email_text.split('@')[1]
+            if domain_part.count('.') <= 0:
+                known_suffixes = ['com', 'net', 'org', 'co.kr', 'kr', 'jp', 'cn', 'edu', 'gov', 'info']
+                for suffix in known_suffixes:
+                    if domain_part.endswith(suffix):
+                        domain_name = domain_part[:-len(suffix)]
+                        if len(domain_name) >= 2:
+                            local_part = email_text.split('@')[0]
+                            corrected = f"{local_part}@{domain_name}.{suffix}"
+                            entities.append({
+                                'text': corrected,
+                                'label': 'p_em',
+                                'start': match.start(),
+                                'end': match.end(),
+                                'confidence': 0.95,
+                                'method': 'regex',
+                            })
+                            break
+        return entities
+
+    def detect_addresses(self, text: str) -> List[Dict]:
+        """주소 탐지"""
+        entities = []
+        patterns = [
+            r'[가-힣]{2,}(?:특별시|광역시|도)\s+[가-힣]{2,}(?:시|군|구)\s+[가-힣]{2,}(?:로|길)\s+\d+[가-힣0-9\s-]*',
+            r'[가-힣]{2,}\s+[가-힣]{2,}(?:시|군|구)\s+[가-힣]{2,}(?:로|길)?\s*\d*[가-힣0-9\s-]*',
+            r'[가-힣]{2,}(?:시|군|구)\s+[가-힣]{2,}(?:로|길)\s+\d+[가-힣0-9\s-]*',
+            r'[가-힣]{2,}구\s+[가-힣]{2,}(?:로|길)\s+\d+[가-힣0-9\s-]*',
+            r'[가-힣]{2,}(?:시|구)\s+[가-힣]{2,}동(?:\s+\d+)?',
+        ]
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                address = match.group().strip()
+                if self._is_valid_address_structure(address):
+                    entities.append({
+                        'text': address,
+                        'label': 'p_add',
+                        'start': match.start(),
+                        'end': match.end(),
+                        'confidence': 1.0,
+                        'method': 'regex',
+                    })
+        return entities
+
+    def _is_valid_address_structure(self, address: str) -> bool:
+        """주소 구조 검증"""
+        if len(address) < 8:
+            return False
+        has_admin = any(kw in address for kw in ['도', '시', '군', '구'])
+        has_location = any(kw in address for kw in ['로', '길', '동'])
+        hangul_chars = sum(1 for c in address if '가' <= c <= '힣')
+        total_chars = len(address.replace(' ', ''))
+        hangul_ratio = hangul_chars / total_chars if total_chars > 0 else 0
+        is_mostly_hangul = hangul_ratio >= 0.6
+        valid_endings = ['동', '번길', '번지', '호', '층']
+        ends_with_number = address[-1].isdigit()
+        ends_with_valid_keyword = any(address.endswith(ending) for ending in valid_endings)
+        ends_improperly = (
+            (address.endswith('구') or address.endswith('시'))
+            and not ends_with_valid_keyword
+            and not ends_with_number
+        )
+        return has_admin and has_location and is_mostly_hangul and not ends_improperly
+
+    def detect_rrn(self, text: str) -> List[Dict]:
+        """주민등록번호 탐지"""
+        entities = []
+        patterns = [r'\d{6}-[1-4]\d{6}', r'(?<!\d)\d{13}(?!\d)']
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                rrn = match.group()
+                digits = re.sub(r'\D', '', rrn)
+                if len(digits) == 13 and digits[6] in '1234':
+                    entities.append({
+                        'text': rrn,
+                        'label': 'p_rrn',
+                        'start': match.start(),
+                        'end': match.end(),
+                        'confidence': 1.0,
+                        'method': 'regex',
+                    })
+        return entities
+
+    def detect_ip(self, text: str) -> List[Dict]:
+        """IP 주소 탐지"""
+        entities = []
+        pattern = r'(?<!\d)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)'
+        for match in re.finditer(pattern, text):
+            try:
+                ip = match.group()
+                if all(0 <= int(x) <= 255 for x in ip.split('.')):
+                    entities.append({
+                        'text': ip,
+                        'label': 'p_ip',
+                        'start': match.start(),
+                        'end': match.end(),
+                        'confidence': 1.0,
+                        'method': 'regex',
+                    })
+            except:
+                pass
+        return entities
+
+    def detect_passports(self, text: str) -> List[Dict]:
+        """여권번호 탐지"""
+        entities = []
+        pattern = r'[a-zA-Z][0-9]{3}[a-zA-Z0-9][0-9]{4}'
+        for match in re.finditer(pattern, text):
+            entities.append({
+                'text': match.group(),
+                'label': 'p_pp',
+                'start': match.start(),
+                'end': match.end(),
+                'confidence': 1.0,
+                'method': 'regex',
+            })
+        return entities
+
+    def detect_names(self, text: str) -> List[Dict]:
+        """이름 탐지 (정규식 기반 - 간단한 추론)"""
+        return []
+
+    def detect_all(self, text: str) -> List[Dict]:
+        """모든 PII 탐지 및 중복 제거"""
+        all_entities = []
+        all_entities.extend(self.detect_rrn(text))
+        all_entities.extend(self.detect_phones(text))
+        all_entities.extend(self.detect_emails(text))
+        all_entities.extend(self.detect_addresses(text))
+        all_entities.extend(self.detect_ip(text))
+        all_entities.extend(self.detect_passports(text))
+
+        seen = set()
+        unique = []
+        for entity in all_entities:
+            key = (entity['start'], entity['end'], entity['label'])
+            if key not in seen:
+                seen.add(key)
+                unique.append(entity)
+        unique.sort(key=lambda x: x['start'])
+        return unique

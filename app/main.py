@@ -5,9 +5,10 @@ AI 처리 전용 마이크로서비스
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
-from app.api import db_ai, file_ai, chat_ai
-from app.utils.logger import logger
+from app.core.config import settings
+from app.core.logging import logger
+from app.core.exceptions import global_exception_handler
+from app.api import db, file, chat
 
 app = FastAPI(
     title="PIILOT",
@@ -24,21 +25,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 글로벌 예외 핸들러 등록
+app.add_exception_handler(Exception, global_exception_handler)
+
 # API 라우터 등록
 app.include_router(
-    db_ai.router, 
-    prefix="/api/ai/db", 
-    tags=["DB AI"]
+    db.router,
+    prefix="/api/ai/db",
+    tags=["DB AI"],
 )
 app.include_router(
-    file_ai.router, 
-    prefix="/api/ai/file", 
-    tags=["File AI"]
+    file.router,
+    prefix="/api/ai/file",
+    tags=["File AI"],
 )
 app.include_router(
-    chat_ai.router, 
-    prefix="/api/ai/chat", 
-    tags=["Chat AI"]
+    chat.router,
+    prefix="/api/ai/chat",
+    tags=["Chat AI"],
 )
 
 
@@ -48,7 +52,7 @@ async def root():
     return {
         "message": "PIILOT API",
         "version": "0.1.0",
-        "description": "AI 처리 전용 마이크로서비스"
+        "description": "AI 처리 전용 마이크로서비스",
     }
 
 
