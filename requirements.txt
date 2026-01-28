@@ -17,7 +17,7 @@ langchain-community
 langchain-core
 openai>=1.54.0
 transformers>=4.46.0
-torch>=2.5.0
+torch>=2.2.0
 sentence-transformers>=3.0.0
 accelerate
 flashrank
@@ -25,13 +25,13 @@ flashrank
 # Vector Database (PostgreSQL + pgvector)
 sqlalchemy>=2.0.25
 psycopg[binary]>=3.2.0
-psycopg2
+# psycopg2
+psycopg2-binary
 pgvector>=0.3.6
-fitz
 python-docx
 
 # Computer Vision
-opencv-python>=4.10.0
+opencv-python>=4.10.0,<4.11
 pillow>=11.0.0
 # face-recognition>=1.3.0  # 선택사항: dlib 빌드 필요 (CMake 필요)
 # 대안: mediapipe 또는 insightface 사용 가능
@@ -50,7 +50,8 @@ moviepy>=1.0.3
 
 # Data Processing
 pandas>=2.2.3
-numpy>=2.1.0
+numpy>=1.26.0,<2.0
+numba<0.63
 pymupdf
 
 # Task Queue (선택사항 - 필요시 사용)
