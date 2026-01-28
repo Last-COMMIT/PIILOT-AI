@@ -3,7 +3,7 @@
 값을 넣으면 개인정보 타입을 반환
 
 사용법:
-    from app.services.db.pii_classifier import classify, classify_batch
+    from classifier_final import classify, classify_batch
     
     # 단일 값 분류
     result = classify("010-1234-5678")  # 'p_ph' 반환
@@ -19,6 +19,16 @@ from typing import Dict, List, Optional
 from pathlib import Path
 from collections import Counter
 import warnings
+import sys
+import os
+
+# 상위 디렉토리(또는 현재 디렉토리)의 bank_info import
+try:
+    from bank_info import BANK_CODES, MOBILE_PREFIXES, BANK_ACCT_LENGTHS, SPECIAL_ACCT_PATTERNS, COMMON_ACCT_PREFIXES
+except ImportError:
+    # 경로 문제 발생 시 처리
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from bank_info import BANK_CODES, MOBILE_PREFIXES, BANK_ACCT_LENGTHS, SPECIAL_ACCT_PATTERNS, COMMON_ACCT_PREFIXES
 
 # XGBoost 경고 메시지 무시
 warnings.filterwarnings('ignore', category=UserWarning, module='xgboost')
@@ -42,96 +52,168 @@ def _extract_features(value: str, text_feature_names: Optional[List[str]] = None
     if pd.isna(value) or value is None:
         value = ""
     value = str(value).strip()
+    value_clean = value  # 코드 가독성을 위해 별칭 사용
     
     # ===== 기본 통계 특징 =====
     # 텍스트의 기본적인 통계 정보 (길이, 숫자/문자 개수 등)
     features = {
         # 길이 및 개수 특징
-        'length': len(value),  # 전체 길이
-        'num_digits': len(re.findall(r'\d', value)),  # 숫자 개수
-        'num_letters': len(re.findall(r'[a-zA-Z가-힣]', value)),  # 문자 개수 (영문+한글)
-        'num_special': len(re.findall(r'[^a-zA-Z0-9가-힣\s]', value)),  # 특수문자 개수
-        'num_spaces': len(re.findall(r'\s', value)),  # 공백 개수
-        'num_hyphens': len(re.findall(r'-', value)),  # 하이픈 개수
-        'num_dots': len(re.findall(r'\.', value)),  # 점 개수
-        'num_at': len(re.findall(r'@', value)),  # @ 기호 개수
-        'num_colons': len(re.findall(r':', value)),  # 콜론 개수
+        'length': len(value_clean),  # 전체 길이 (strip 후)
+        'num_digits': len(re.findall(r'\d', value_clean)),  # 숫자 개수
+        'num_letters': len(re.findall(r'[a-zA-Z가-힣]', value_clean)),  # 문자 개수 (영문+한글)
+        'num_special': len(re.findall(r'[^a-zA-Z0-9가-힣\s]', value_clean)),  # 특수문자 개수
+        'num_spaces': len(re.findall(r'\s', value_clean)),  # 공백 개수
+        'num_hyphens': len(re.findall(r'-', value_clean)),  # 하이픈 개수
+        'num_dots': len(re.findall(r'\.', value_clean)),  # 점 개수
+        'num_at': len(re.findall(r'@', value_clean)),  # @ 기호 개수
+        'num_colons': len(re.findall(r':', value_clean)),  # 콜론 개수
         
         # 비율 특징 (0~1 사이 값)
-        'digit_ratio': len(re.findall(r'\d', value)) / max(len(value), 1),  # 숫자 비율
-        'letter_ratio': len(re.findall(r'[a-zA-Z가-힣]', value)) / max(len(value), 1),  # 문자 비율
-        'special_ratio': len(re.findall(r'[^a-zA-Z0-9가-힣\s]', value)) / max(len(value), 1),  # 특수문자 비율
+        'digit_ratio': len(re.findall(r'\d', value_clean)) / max(len(value_clean), 1),  # 숫자 비율
+        'letter_ratio': len(re.findall(r'[a-zA-Z가-힣]', value_clean)) / max(len(value_clean), 1),  # 문자 비율
+        'special_ratio': len(re.findall(r'[^a-zA-Z0-9가-힣\s]', value_clean)) / max(len(value_clean), 1),  # 특수문자 비율
         
         # ===== 마스킹 감지 특징 =====
-        # 마스킹된 데이터는 NONE으로 분류되어야 함
-        'has_asterisk': 1.0 if '*' in value else 0.0,  # 별표 존재 여부
-        'num_asterisks': float(value.count('*')),  # 별표 개수
-        'has_masking_pattern': 1.0 if '*' in value and value.count('*') >= 2 else 0.0,  # 마스킹 패턴 (별표 2개 이상)
-        'has_consecutive_asterisks': 1.0 if '**' in value else 0.0,  # 연속된 별표
-        # ===== 패턴 매칭 특징 =====
-        # 각 개인정보 유형의 패턴을 정규식으로 감지 (마스킹이 있으면 패턴 매칭 실패)
-        'has_rrn_pattern': 1.0 if '*' not in value and re.match(r'^\d{6}-?\d{7}$', value.replace('-', '')) else 0.0,  # 주민등록번호 패턴 (6자리-7자리)
-        'has_phone_pattern': 1.0 if '*' not in value and re.match(r'^0\d{1,2}-?\d{3,4}-?\d{4}$', value.replace('-', '')) else 0.0,  # 전화번호 패턴 (010-1234-5678)
-        'has_email_pattern': 1.0 if '*' not in value and bool(re.search(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', value)) else 0.0,  # 이메일 패턴
-        'has_acn_pattern': 1.0 if '*' not in value and (
-            (value[:3].isdigit() and value.count('-') >= 2 and 10 <= len(value.replace('-', '')) <= 16) or  # 계좌번호: 하이픈 2개 이상
-            (value[:3].isdigit() and value.count('-') == 1 and 10 <= len(value.replace('-', '')) <= 16) or  # 계좌번호: 하이픈 1개
-            (value[:3].isdigit() and value.count('-') == 0 and 10 <= len(value) <= 16)  # 계좌번호: 하이픈 없음
+        # 마스킹된 데이터는 NONE으로 분류되어야 함 (단, 일부 마스킹은 감지해야 할 수도 있음)
+        'has_asterisk': 1.0 if '*' in value_clean else 0.0,  # 별표 존재 여부
+        'num_asterisks': float(value_clean.count('*')),  # 별표 개수
+        'has_masking_pattern': 1.0 if '*' in value_clean and value_clean.count('*') >= 2 else 0.0,  # 마스킹 패턴 (별표 2개 이상)
+        'has_consecutive_asterisks': 1.0 if '**' in value_clean else 0.0,  # 연속된 별표
+        
+        # ===== 패턴 매칭 특징 (전처리된 값 기준) =====
+        'has_rrn_pattern': 1.0 if '*' not in value_clean and re.match(r'^\d{6}-?\d{7}$', value_clean.replace('-', '')) else 0.0,  # 주민등록번호 패턴
+        # 전화번호 패턴 (010-1234-5678) - 엄격한 패턴
+        'has_phone_pattern': 1.0 if '*' not in value_clean and re.match(r'^0\d{1,2}-?\d{3,4}-?\d{4}$', value_clean) else 0.0,
+        'has_email_pattern': 1.0 if '*' not in value_clean and bool(re.search(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', value_clean)) else 0.0,  # 이메일 패턴
+        
+        # 계좌번호 패턴 매칭 (기존보다 완화된 조건으로 넓게 잡음)
+        'has_acn_pattern': 1.0 if '*' not in value_clean and (
+            (value_clean[:3].isdigit() and value_clean.count('-') >= 1 and 10 <= len(value_clean.replace('-', '')) <= 20) or  # 하이픈 1개 이상, 길이 10~20
+            (value_clean[:3].isdigit() and value_clean.count('-') == 0 and 10 <= len(value_clean) <= 16)  # 하이픈 없음, 길이 10~16
         ) else 0.0,
-        'has_pp_pattern': 1.0 if '*' not in value and re.match(r'^[A-Z]\d{8}$', value) else 0.0,  # 여권번호 패턴 (영문 1자리 + 숫자 8자리)
-        'has_ip_pattern': 1.0 if '*' not in value and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', value) else 0.0,  # IP주소 패턴
-        'has_date_pattern': 1.0 if '*' not in value and re.match(r'^\d{4}[-/]?\d{2}[-/]?\d{2}$', value) else 0.0,  # 날짜 패턴 (YYYY-MM-DD)
+        
+        'has_pp_pattern': 1.0 if '*' not in value_clean and re.match(r'^[A-Z]\d{8}$', value_clean) else 0.0,  # 여권번호 패턴
+        'has_ip_pattern': 1.0 if '*' not in value_clean and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', value_clean) else 0.0,  # IP주소 패턴
+        'has_date_pattern': 1.0 if '*' not in value_clean and re.match(r'^\d{4}[-/]?\d{2}[-/]?\d{2}$', value_clean) else 0.0,  # 날짜 패턴
+        
         # ===== 이름 특화 특징 =====
-        'has_korean_name_pattern': 1.0 if bool(re.match(r'^[가-힣]{2,4}$', value)) and not bool(re.search(r'[0-9]', value)) else 0.0,  # 한국 이름 패턴 (한글 2-4자, 숫자 없음)
-        'is_korean_only': 1.0 if bool(re.match(r'^[가-힣]+$', value)) else 0.0,  # 한글만 포함
-        'name_like_length': 1.0 if 2 <= len(value) <= 4 and bool(re.match(r'^[가-힣]+$', value)) else 0.0,  # 이름 같은 길이 (2-4자 한글)
+        'has_korean_name_pattern': 1.0 if bool(re.match(r'^[가-힣]{2,4}$', value_clean)) and not bool(re.search(r'[0-9]', value_clean)) else 0.0,
+        'is_korean_only': 1.0 if bool(re.match(r'^[가-힣]+$', value_clean)) else 0.0,
+        'name_like_length': 1.0 if 2 <= len(value_clean) <= 4 and bool(re.match(r'^[가-힣]+$', value_clean)) else 0.0,
         
         # ===== 이메일 특화 특징 =====
-        'has_at_symbol': 1.0 if '@' in value else 0.0,  # @ 기호 존재
-        'has_dot_after_at': 1.0 if '@' in value and '.' in value.split('@')[1] else 0.0,  # @ 뒤에 점 존재
-        'email_like_length': 1.0 if 5 <= len(value) <= 50 and '@' in value else 0.0,  # 이메일 같은 길이
+        'has_at_symbol': 1.0 if '@' in value_clean else 0.0,
+        'has_dot_after_at': 1.0 if '@' in value_clean and len(value_clean.split('@')) > 1 and '.' in value_clean.split('@')[1] else 0.0,
+        'email_like_length': 1.0 if 5 <= len(value_clean) <= 50 and '@' in value_clean else 0.0,
         
         # ===== 주소 특화 특징 =====
-        'has_korean': 1.0 if '*' not in value and bool(re.search(r'[가-힣]', value)) else 0.0,  # 한글 포함 여부
-        'has_address_keywords': 1.0 if '*' not in value and bool(re.search(r'(시|구|동|군|면|리|번지|로|길|대로)', value)) else 0.0,  # 주소 키워드 포함
-        'address_like_length': 1.0 if '*' not in value and len(value) >= 10 and bool(re.search(r'[가-힣]', value)) else 0.0,  # 주소 같은 길이 (10자 이상 + 한글)
-        'has_space_in_middle': 1.0 if '*' not in value and ' ' in value and 0 < value.find(' ') < len(value) - 1 else 0.0,  # 중간에 공백 존재
+        'has_address_keywords': 1.0 if bool(re.search(r'(시|구|동|군|면|리|번지|로|길|대로)', value_clean)) else 0.0,
+        'address_like_length': 1.0 if len(value_clean) >= 10 and bool(re.search(r'[가-힣]', value_clean)) else 0.0,
         
         # ===== 날짜 특화 특징 =====
-        'has_date_keywords': 1.0 if bool(re.search(r'(년|월|일)', value)) else 0.0,  # 날짜 키워드 포함 (년/월/일)
-        'is_korean_date': 1.0 if bool(re.search(r'\d{4}년\s*\d{1,2}월\s*\d{1,2}일', value)) or bool(re.search(r'\d{4}년\s*\d{1,2}월', value)) else 0.0,  # 한글 날짜 패턴
-        # ===== 길이 기반 특징 =====
-        'is_length_13_14': 1.0 if 13 <= len(value.replace('-', '')) <= 14 else 0.0,  # 주민등록번호 길이
-        'is_length_10_11': 1.0 if 10 <= len(value.replace('-', '')) <= 11 else 0.0,  # 전화번호 길이
-        'is_length_9': 1.0 if len(value.replace('-', '')) == 9 else 0.0,  # 여권번호 길이
-        'is_length_12_13': 1.0 if 12 <= len(value.replace('-', '')) <= 13 else 0.0,  # 계좌번호 길이 (기존)
-        'is_length_10_16': 1.0 if 10 <= len(value.replace('-', '')) <= 16 else 0.0,  # 계좌번호 길이 (확장 범위)
-        'is_length_2_4_korean': 1.0 if 2 <= len(value) <= 4 and bool(re.match(r'^[가-힣]+$', value)) else 0.0,  # 이름 길이 (한글 2-4자)
+        'has_date_keywords': 1.0 if bool(re.search(r'(년|월|일)', value_clean)) else 0.0,
+        'is_korean_date': 1.0 if bool(re.search(r'\d{4}년', value_clean)) else 0.0,
+        
+        # ===== 길이 기반 특징 (하이픈 제외) =====
+        'is_length_13_14': 1.0 if 13 <= len(value_clean.replace('-', '')) <= 14 else 0.0,
+        'is_length_10_11': 1.0 if 10 <= len(value_clean.replace('-', '')) <= 11 else 0.0,
+        'is_length_9': 1.0 if len(value_clean.replace('-', '')) == 9 else 0.0,
+        'is_length_10_16': 1.0 if 10 <= len(value_clean.replace('-', '')) <= 16 else 0.0,
         
         # ===== 시작/끝 문자 특징 =====
-        'starts_with_digit': 1.0 if value and value[0].isdigit() else 0.0,  # 숫자로 시작
-        'ends_with_digit': 1.0 if value and value[-1].isdigit() else 0.0,  # 숫자로 끝남
-        'starts_with_letter': 1.0 if value and value[0].isalpha() else 0.0,  # 문자로 시작
+        'starts_with_digit': 1.0 if value_clean and value_clean[0].isdigit() else 0.0,
+        'ends_with_digit': 1.0 if value_clean and value_clean[-1].isdigit() else 0.0,
+        'starts_with_letter': 1.0 if value_clean and value_clean[0].isalpha() else 0.0,
         
         # ===== 하이픈 관련 특징 =====
-        'has_hyphen_middle': 1.0 if '-' in value and 0 < value.find('-') < len(value) - 1 else 0.0,  # 중간에 하이픈 존재
-        'hyphen_position_ratio': value.find('-') / max(len(value), 1) if '-' in value else 0.0,  # 하이픈 위치 비율
-        'num_hyphens': float(value.count('-')),  # 하이픈 개수
-        'has_multiple_hyphens': 1.0 if value.count('-') >= 2 else 0.0,  # 여러 하이픈 존재
-        # ===== 계좌번호 특화 특징 =====
-        # 계좌번호는 다양한 형식이 있어서 여러 특징으로 감지
-        'starts_with_bank_code': 1.0 if '*' not in value and value and len(value) >= 3 and value[:3].isdigit() and value[:3] in ['004', '088', '020', '081', '003', '011', '090', '089', '023', '027'] else 0.0,  # 유효한 은행 코드로 시작
-        'has_hyphen_after_3digits': 1.0 if '*' not in value and len(value) > 3 and value[:3].isdigit() and value[3] == '-' else 0.0,  # 처음 3자리 뒤에 하이픈
-        'acn_like_structure': 1.0 if '*' not in value and (value[:3].isdigit() if len(value) >= 3 else False) and value.count('-') >= 2 and len(value.replace('-', '')) >= 10 else 0.0,  # 계좌번호 같은 구조
-        'no_letters_in_acn': 1.0 if '*' not in value and bool(re.match(r'^[\d-]+$', value)) and value[:3].isdigit() and len(value.replace('-', '')) >= 10 else 0.0,  # 계좌번호는 영문자 없음
-        'acn_starts_with_valid_bank_and_has_hyphens': 1.0 if '*' not in value and value and len(value) >= 3 and value[:3].isdigit() and value[:3] in ['004', '088', '020', '081', '003', '011', '090', '089', '023', '027'] and value.count('-') >= 1 and 10 <= len(value.replace('-', '')) <= 16 else 0.0,  # 유효 은행코드 + 하이픈 + 길이 체크
-        'acn_has_multiple_hyphens_and_valid_length': 1.0 if '*' not in value and value.count('-') >= 2 and value[:3].isdigit() and 10 <= len(value.replace('-', '')) <= 16 else 0.0,  # 하이픈 2개 이상 + 유효 길이
-        'acn_no_hyphen_but_valid_bank_code': 1.0 if '*' not in value and value and len(value) >= 10 and value[:3].isdigit() and value[:3] in ['004', '088', '020', '081', '003', '011', '090', '089', '023', '027'] and '-' not in value and 10 <= len(value) <= 16 else 0.0,  # 하이픈 없지만 유효 은행코드 + 길이
+        'hyphen_position_ratio': value_clean.find('-') / max(len(value_clean), 1) if '-' in value_clean else 0.0,
+        'num_hyphens': float(value_clean.count('-')),
+        'has_multiple_hyphens': 1.0 if value_clean.count('-') >= 2 else 0.0,
         
-        # ===== 연속 문자 특징 =====
-        'max_consecutive_digits': max([len(match) for match in re.findall(r'\d+', value)] or [0]),  # 최대 연속 숫자 길이
-        'max_consecutive_letters': max([len(match) for match in re.findall(r'[a-zA-Z가-힣]+', value)] or [0]),  # 최대 연속 문자 길이
+        # ==============================================================================
+        # [NEW] 계좌번호 vs 전화번호 정밀 식별 특징 (bank_info 활용)
+        # ==============================================================================
     }
+    
+    # 전처리된 값에서 하이픈 제거
+    val_digit = value_clean.replace('-', '')
+    
+    # 1. 은행 코드 시작 여부 & 모바일 접두어 여부
+    features['starts_with_bank_code'] = 0.0
+    features['starts_with_mobile_prefix'] = 0.0
+    
+    if len(val_digit) >= 3 and val_digit[:3].isdigit():
+        prefix = val_digit[:3]
+        if prefix in BANK_CODES:
+            features['starts_with_bank_code'] = 1.0
+        if prefix in MOBILE_PREFIXES:
+            features['starts_with_mobile_prefix'] = 1.0
+            
+    # 2. 011과 같은 모호한 접두어 처리 (농협 vs 구형 폰번호)
+    # 농협 계좌: 보통 13자리 (예: 011-01-123456)
+    # 휴대폰: 10~11자리 (예: 011-234-5678)
+    features['is_suspicious_01X'] = 0.0
+    if features['starts_with_bank_code'] == 1.0 and features['starts_with_mobile_prefix'] == 1.0:
+        # 접두어는 같지만 길이가 다르면 구분 가능
+        if len(val_digit) >= 12: # 12자리 이상이면 계좌일 확률 높음
+            features['is_suspicious_01X'] = -1.0 # 계좌 쪽으로 가중치
+        else:
+            features['is_suspicious_01X'] = 1.0 # 폰번호 쪽으로 가중치
+
+    # 3. 은행별 구조 점수 (Structure Score)
+    # 해당 은행 코드의 일반적인 길이와 일치하는지
+    features['bank_structure_score'] = 0.0
+    if len(val_digit) >= 3 and val_digit[:3].isdigit():
+        prefix = val_digit[:3]
+        if prefix in BANK_ACCT_LENGTHS:
+            if len(val_digit) in BANK_ACCT_LENGTHS[prefix]:
+                features['bank_structure_score'] = 1.0
+            else:
+                 # 코드는 맞지만 길이가 다름 -> 유령 포맷이거나 잘못된 번호
+                 features['bank_structure_score'] = 0.5 
+        elif prefix in BANK_CODES:
+             # 길이는 모르지만 코드는 맞음
+             features['bank_structure_score'] = 0.8
+        
+        # [NEW] 일반적인 계좌 접두어 (상품코드 등) 확인
+        features['starts_with_acct_prefix'] = 0.0
+        for p in COMMON_ACCT_PREFIXES:
+            if val_digit.startswith(p):
+                features['starts_with_acct_prefix'] = 1.0
+                break
+        
+    # [NEW] 특수 계좌 패턴 매칭 (KB 주택, 비코드 구조 등)
+    features['is_special_acct_pattern'] = 0.0
+    for pattern in SPECIAL_ACCT_PATTERNS:
+        if re.match(pattern, val_digit):
+            features['is_special_acct_pattern'] = 1.0
+            features['starts_with_bank_code'] = 1.0 # 특수 패턴이면 은행 코드로 간주 (가중치 보정)
+            break
+
+    # 4. 엄격한 모바일 패턴 (정규식)
+    # -가 있거나 없거나, 010-XXXX-XXXX 형식에 정확히 부합
+    features['is_strict_mobile_format'] = 0.0
+    if re.match(r'^01[016789]-?\d{3,4}-?\d{4}$', value_clean):
+        features['is_strict_mobile_format'] = 1.0
+        
+    # 5. 계좌번호인데 영문자가 없음 (강력한 힌트)
+    features['no_letters_in_acn'] = 1.0 if bool(re.match(r'^[\d-]+$', value_clean)) else 0.0
+    
+    # 6. 하이픈 위치별 숫자 갯수 (패턴 구분용)
+    # 예: 3-2-6 (계좌) vs 3-4-4 (전화)
+    parts = value_clean.split('-')
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        features['hyphen_structure_1'] = float(len(parts[0]))
+        features['hyphen_structure_2'] = float(len(parts[1]))
+        features['hyphen_structure_3'] = float(len(parts[2]))
+    else:
+        features['hyphen_structure_1'] = 0.0
+        features['hyphen_structure_2'] = 0.0
+        features['hyphen_structure_3'] = 0.0
+
+    # ===== 연속 문자 특징 =====
+    features['max_consecutive_digits'] = max([len(match) for match in re.findall(r'\d+', value_clean)] or [0])
+    features['max_consecutive_letters'] = max([len(match) for match in re.findall(r'[a-zA-Z가-힣]+', value_clean)] or [0])
     
     # ===== 텍스트 특징 (n-gram) =====
     # 문자 2-gram, 3-gram 빈도를 특징으로 사용 (모델 학습 시 선택된 n-gram만 사용)
@@ -171,7 +253,7 @@ def classify(value: str, model_dir: Optional[str] = None) -> str:
     
     Args:
         value: 분류할 텍스트 값
-        model_dir: 모델 파일이 있는 디렉토리 경로 (None이면 기본 경로 사용)
+        model_dir: 모델 파일이 있는 디렉토리 경로 (None이면 현재 파일 기준 model 폴더)
     
     Returns:
         str: 개인정보 타입 ('p_nm', 'p_rrn', 'p_add', 'p_ip', 'p_ph', 'p_acn', 'p_pp', 'p_em', 'NONE')
@@ -188,9 +270,7 @@ def classify(value: str, model_dir: Optional[str] = None) -> str:
     if _model is None:
         # 모델 디렉토리 경로 설정
         if model_dir is None:
-            # 기본 경로: 프로젝트 루트의 models/encryption_classifier
-            project_root = Path(__file__).parent.parent.parent.parent
-            model_dir = project_root / "models" / "encryption_classifier"
+            model_dir = Path(__file__).parent / "model"
         else:
             model_dir = Path(model_dir)
         
@@ -254,7 +334,7 @@ def classify_batch(values: List[str], model_dir: Optional[str] = None) -> List[s
     
     Args:
         values: 분류할 텍스트 값들의 리스트
-        model_dir: 모델 파일이 있는 디렉토리 경로 (None이면 기본 경로 사용)
+        model_dir: 모델 파일이 있는 디렉토리 경로 (None이면 현재 파일 기준 model 폴더)
     
     Returns:
         List[str]: 개인정보 타입 리스트
@@ -269,8 +349,7 @@ def classify_batch(values: List[str], model_dir: Optional[str] = None) -> List[s
     # classify() 함수와 동일한 로직
     if _model is None:
         if model_dir is None:
-            project_root = Path(__file__).parent.parent.parent.parent
-            model_dir = project_root / "models" / "encryption_classifier"
+            model_dir = Path(__file__).parent / "model"
         else:
             model_dir = Path(model_dir)
         
