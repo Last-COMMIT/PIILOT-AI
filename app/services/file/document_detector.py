@@ -8,7 +8,7 @@ from .detectors.hybrid_detector import HybridPIIDetector
 from .masker import Masker
 from app.config import PII_NAMES, OUTPUT_DIR
 
-class DocumentDetector:
+class DocumentDetector():
     """하이브리드 PII 탐지 및 비식별화 통합 파이프라인"""
     def __init__(self, model_path: str, use_gpu=True, mask_char='*',
                  confidence_thresholds: Dict[str, float] = None):

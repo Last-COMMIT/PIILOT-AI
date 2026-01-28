@@ -67,4 +67,14 @@ settings = Settings()
 MODEL_PATH = settings.PII_MODEL_PATH
 OUTPUT_DIR = settings.PII_OUTPUT_DIR
 
+# 상대 경로를 절대 경로로 변환 (프로젝트 루트 기준)
+if not os.path.isabs(OUTPUT_DIR):
+    # 프로젝트 루트 디렉토리 찾기 (app/config.py 기준으로 상위 2단계)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    OUTPUT_DIR = os.path.join(project_root, OUTPUT_DIR.lstrip('./'))
+
+# 절대 경로로 변환
+OUTPUT_DIR = os.path.abspath(OUTPUT_DIR)
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
