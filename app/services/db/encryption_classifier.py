@@ -1,7 +1,7 @@
 """
 암호화 여부 판단 (분류 모델)
 """
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from pathlib import Path
 from urllib.parse import urlparse
 import pandas as pd
@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, text
 from app.utils.logger import logger
 from app.config import settings
 from app.utils.db_connect import create_db_engine
-from app.services.db.pii_classifier import classify_batch
+from app.services.db.detectors.classifier import classify_batch
 
 
 class EncryptionClassifier:
@@ -23,14 +23,18 @@ class EncryptionClassifier:
         self.model_path = model_path
         # 메인 DB 연결 (연결 정보 조회용)
         # DATABASE_URL 파싱: postgresql+psycopg://user:password@host:port/dbname
-        parsed_url = urlparse(settings.DATABASE_URL.replace('postgresql+psycopg://', 'postgresql://'))
-        self.main_engine = create_db_engine(
-            user=parsed_url.username,
-            password=parsed_url.password,
-            host=parsed_url.hostname,
-            port=parsed_url.port or 5432,
-            database=parsed_url.path.lstrip('/')
-        )
+        if hasattr(settings, 'DATABASE_URL') and settings.DATABASE_URL:
+            parsed_url = urlparse(settings.DATABASE_URL.replace('postgresql+psycopg://', 'postgresql://'))
+            self.main_engine = create_db_engine(
+                user=parsed_url.username,
+                password=parsed_url.password,
+                host=parsed_url.hostname,
+                port=parsed_url.port or 5432,
+                database=parsed_url.path.lstrip('/')
+            )
+        else:
+            self.main_engine = None
+            
         # 연결 정보 캐시
         self._connection_cache: Dict[str, Dict] = {}
         logger.info(f"EncryptionClassifier 초기화: {model_path}")
@@ -38,13 +42,10 @@ class EncryptionClassifier:
     def _get_connection_info(self, connection_id: str) -> Dict:
         """
         메인 DB에서 connection_id로 연결 정보 조회
-        
-        Args:
-            connection_id: 연결 ID
-        
-        Returns:
-            연결 정보 딕셔너리 (host, port, db_name, username, password)
         """
+        if not self.main_engine:
+             raise RuntimeError("Main DB Engine이 초기화되지 않았습니다.")
+
         # 캐시 확인
         if connection_id in self._connection_cache:
             return self._connection_cache[connection_id]
@@ -72,9 +73,7 @@ class EncryptionClassifier:
             }
         
         # 비밀번호 복호화 (TODO: 나중에 구현)
-        # TODO: encrypted_password 복호화 로직 추가
-        decrypted_password = connection_info["encrypted_password"]  # 임시로 암호화된 비밀번호 그대로 사용
-        
+        decrypted_password = connection_info["encrypted_password"]
         connection_info["password"] = decrypted_password
         
         # 캐시에 저장
@@ -82,17 +81,32 @@ class EncryptionClassifier:
         
         return connection_info
     
-    def classify(self, connection_id: str, table_name: str, column_name: str) -> Dict[str, int]:
+    def check_encryption(self, values: list) -> str:
         """
-        데이터 샘플의 암호화 여부 판단
+        값 리스트를 받아 암호화 여부("되어있음"/"안되어있음")를 반환
         
-        Args:
-            connection_id: DB 연결 ID
-            table_name: 테이블 이름
-            column_name: 컬럼 이름
-            
-        Returns:
-            {"total_records": int, "encrypted_records": int} 형태
+        로직:
+            - PII(개인정보)가 식별되면 -> 평문이므로 "안되어있음"
+            - PII가 식별되지 않으면(NONE) -> 암호화된 것으로 간주하여 "되어있음"
+        """
+        if not values:
+            return "판단불가"
+
+        # PII 분류 (배치 처리)
+        pii_results = classify_batch(values, model_dir=self.model_path)
+        
+        # PII가 하나라도 발견되면 "안되어있음"으로 판단
+        # (단, 오탐 방지를 위해 임계값을 둘 수 있음, 여기서는 1개라도 나오면 안된 것으로 간주)
+        pii_detected_count = sum(1 for res in pii_results if res != "NONE")
+        
+        if pii_detected_count > 0:
+            return "안되어있음" # PII 식별됨 -> 암호화 안됨
+        else:
+            return "되어있음" # PII 식별 안됨 -> 암호화 됨
+    
+    def classify(self, connection_id: str, table_name: str, column_name: str) -> Dict[str, Any]:
+        """
+        데이터 샘플의 암호화 여부 판단 (DB 접속 포함)
         """
         try:
             logger.info(f"암호화 여부 판단 시작: connection_id={connection_id}, table={table_name}, column={column_name}")
@@ -109,8 +123,8 @@ class EncryptionClassifier:
                 database=connection_info["db_name"]
             )
             
-            # 3. 데이터 조회
-            query = text(f'SELECT "{column_name}" FROM "{table_name}"')
+            # 3. 데이터 조회 (샘플링)
+            query = text(f'SELECT "{column_name}" FROM "{table_name}" LIMIT 100')
             with target_engine.connect() as conn:
                 df = pd.read_sql(query, conn)
             
@@ -120,48 +134,28 @@ class EncryptionClassifier:
             total_records = len(values)
             
             if total_records == 0:
-                logger.warning(f"조회된 데이터가 없습니다: table={table_name}, column={column_name}")
-                return {"total_records": 0, "encrypted_records": 0}
+                return {
+                    "table_name": table_name,
+                    "column_name": column_name,
+                    "encryption_status": "판단불가", 
+                    "reason": "데이터 없음"
+                }
             
-            logger.debug(f"조회된 데이터 개수: {total_records}개")
-            
-            # 4. PII 분류 (배치 처리)
-            pii_results = classify_batch(values, model_dir=self.model_path)
-            
-            # 5. 암호화된 레코드 수 계산 (NONE으로 분류된 개수)
-            encrypted_records = sum(1 for result in pii_results if result == "NONE")
-            
-            logger.info(f"분류 완료: 총 {total_records}개 중 암호화 {encrypted_records}개")
+            # 4. 암호화 여부 진단
+            status = self.check_encryption(values)
             
             return {
-                "total_records": total_records,
-                "encrypted_records": encrypted_records
+                "table_name": table_name,
+                "column_name": column_name,
+                "encryption_status": status,
+                "total_records": total_records
             }
         
         except Exception as e:
             logger.error(f"암호화 여부 판단 오류: {str(e)}", exc_info=True)
-            # 에러 발생 시 0 반환
-            return {"total_records": 0, "encrypted_records": 0}
-    
-    def is_encrypted(self, connection_id: str, table_name: str, column_name: str, threshold: float = 0.5) -> bool:
-        """
-        암호화 여부를 boolean으로 반환
-        
-        Args:
-            connection_id: DB 연결 ID
-            table_name: 테이블 이름
-            column_name: 컬럼 이름
-            threshold: 판단 임계값 (기본 0.5, 암호화 비율)
-        
-        Returns:
-            True: 암호화됨, False: 평문
-        """
-        result = self.classify(connection_id, table_name, column_name)
-        total = result.get("total_records", 0)
-        encrypted = result.get("encrypted_records", 0)
-        
-        if total == 0:
-            return False
-        
-        encryption_rate = encrypted / total
-        return encryption_rate > threshold
+            return {
+                "table_name": table_name,
+                "column_name": column_name,
+                "encryption_status": "에러",
+                "error_message": str(e)
+            }
