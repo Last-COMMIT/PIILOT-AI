@@ -4,6 +4,7 @@ import fitz
 import numpy as np
 from typing import List, Dict
 from docx import Document
+from pathlib import Path
 from app.utils.logger import logger
 from app.utils.image_loader import load_image
 from app.services.file.audio_masking import audio_pii_service
@@ -108,13 +109,232 @@ class Masker:
             logger.error(f"음성 마스킹 중 오류 발생: {str(e)}")
             raise e
     
-    def mask_video(self, video_path: str, faces: list, audio_items: list) -> bytes:
+    def mask_video(self, video_path: str, faces: list, audio_items: list, 
+                   save_path: str = None) -> bytes:
         """
         영상 마스킹 (얼굴 모자이크 + 오디오 마스킹)
+        
+        Args:
+            video_path: 비디오 파일 경로 또는 base64 인코딩된 비디오
+            faces: 얼굴 위치 리스트 (사용하지 않음 - 자동 감지 사용)
+            audio_items: 오디오 개인정보 항목 리스트
+            save_path: 마스킹된 비디오를 저장할 경로 (None이면 프로젝트 루트의 tests 폴더에 저장)
+            
+        Returns:
+            마스킹된 비디오 (bytes)
         """
-        # TODO: 구현 필요
-        logger.info(f"영상 마스킹: {len(faces)}개 얼굴, {len(audio_items)}개 오디오 항목")
-        pass
+        import base64
+        import tempfile
+        import os
+        import subprocess
+        import shutil
+        from app.services.file.face_detector import YOLOFaceDetector
+        from app.services.file.blur_censor import BlurCensor
+        from app.services.file.video_processor import VideoProcessorEnhanced
+        
+        logger.info(f"영상 마스킹 시작: {len(faces)}개 얼굴 정보, {len(audio_items)}개 오디오 항목")
+        
+        # 비디오 파일 경로 처리 (base64 또는 파일 경로)
+        input_video_path = None
+        is_base64 = False
+        output_is_temp = False
+        
+        # save_path가 지정되지 않으면 프로젝트 루트의 tests 폴더에 저장
+        if save_path is None:
+            # 프로젝트 루트 찾기 (app/services/file/masker.py 기준 상위 3단계)
+            current_file = Path(__file__).resolve()
+            project_root = current_file.parent.parent.parent.parent  # app/services/file -> app/services -> app -> root
+            tests_dir = project_root / "tests"
+            tests_dir.mkdir(exist_ok=True)
+            
+            # 타임스탬프 기반 파일명 생성
+            import datetime
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            save_path = str(tests_dir / f"masked_video_{timestamp}.mp4")
+            output_is_temp = False  # 영구 저장
+            logger.info(f"프로젝트 루트의 tests 폴더에 저장: {save_path}")
+        
+        # base64인지 확인
+        if video_path.startswith("data:video") or len(video_path) > 1000:
+            is_base64 = True
+            # base64 디코딩하여 임시 파일로 저장
+            try:
+                if "," in video_path:
+                    base64_data = video_path.split(",")[1]
+                else:
+                    base64_data = video_path
+                
+                video_bytes = base64.b64decode(base64_data)
+                temp_input = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                temp_input.write(video_bytes)
+                temp_input.close()
+                input_video_path = temp_input.name
+                logger.info("Base64 비디오를 임시 파일로 저장했습니다.")
+            except Exception as e:
+                logger.error(f"Base64 비디오 디코딩 오류: {e}")
+                raise ValueError(f"비디오 디코딩 실패: {e}")
+        else:
+            # 파일 경로
+            if not os.path.exists(video_path):
+                raise FileNotFoundError(f"비디오 파일을 찾을 수 없습니다: {video_path}")
+            input_video_path = video_path
+        
+        try:
+            # 출력 파일 경로 설정 (save_path는 이미 설정됨)
+            output_video_path = save_path
+            # 디렉토리가 없으면 생성 (tests 폴더는 이미 생성되었지만 안전을 위해)
+            output_dir = os.path.dirname(os.path.abspath(save_path))
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            logger.info(f"마스킹된 비디오를 저장합니다: {save_path}")
+            
+            # 얼굴 감지기 초기화
+            detector = YOLOFaceDetector(
+                conf_threshold=0.25,
+                iou_threshold=0.45,
+                imgsz=640,
+                enhance_image=True
+            )
+            
+            # 블러 처리기 초기화
+            blur_censor = BlurCensor(blur_factor=99)
+            
+            # 비디오 프로세서 초기화 (Kalman Filter 사용)
+            processor = VideoProcessorEnhanced(
+                detector=detector,
+                censor=blur_censor,
+                max_track_frames=10,
+                iou_threshold=0.3,
+                use_kalman=True
+            )
+            
+            # 비디오 처리 (얼굴 블러 적용)
+            logger.info("비디오 얼굴 마스킹 처리 중...")
+            processor.process_video(input_video_path, output_video_path, conf_thresh=0.25)
+            
+            # 오디오 처리 (추출 → 마스킹 → 합성)
+            final_video_path = output_video_path
+            temp_audio_path = None
+            temp_masked_audio_path = None
+            temp_final_video_path = None
+            
+            try:
+                # 비디오에서 오디오 추출
+                temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                temp_audio.close()
+                audio_extract_path = temp_audio.name
+                temp_audio_path = audio_extract_path
+                
+                # ffmpeg로 오디오 추출
+                extract_cmd = [
+                    'ffmpeg', '-i', input_video_path,
+                    '-vn', '-acodec', 'libmp3lame',
+                    '-y', audio_extract_path
+                ]
+                try:
+                    subprocess.run(extract_cmd, check=True, capture_output=True)
+                    logger.info("비디오에서 오디오 추출 완료")
+                    
+                    # 오디오 마스킹 처리
+                    if audio_items:
+                        logger.info(f"오디오 마스킹 처리 중... ({len(audio_items)}개 항목)")
+                        masked_audio_bytes = audio_pii_service.mask_audio(audio_extract_path, audio_items)
+                        
+                        # 마스킹된 오디오를 임시 파일로 저장
+                        temp_masked_audio = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                        temp_masked_audio.write(masked_audio_bytes)
+                        temp_masked_audio.close()
+                        masked_audio_path = temp_masked_audio.name
+                        temp_masked_audio_path = masked_audio_path
+                    else:
+                        # 오디오 항목이 없으면 원본 오디오 사용
+                        logger.info("오디오 마스킹 항목이 없어 원본 오디오를 사용합니다.")
+                        masked_audio_path = audio_extract_path
+                    
+                    # 마스킹된 오디오를 비디오에 합성
+                    temp_final_video = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                    temp_final_video.close()
+                    final_video_with_audio = temp_final_video.name
+                    temp_final_video_path = final_video_with_audio
+                    
+                    logger.info(f"오디오 합성 중: 비디오={output_video_path}, 오디오={masked_audio_path}")
+                    
+                    merge_cmd = [
+                        'ffmpeg', '-i', output_video_path,
+                        '-i', masked_audio_path,
+                        '-c:v', 'copy', '-c:a', 'aac',
+                        '-map', '0:v:0', '-map', '1:a:0',
+                        '-shortest', '-y', final_video_with_audio
+                    ]
+                    subprocess.run(merge_cmd, check=True, capture_output=True)
+                    logger.info("오디오 합성 완료")
+                    
+                    # 최종 파일을 원래 경로로 복사 (오디오가 합성된 경우)
+                    if final_video_with_audio != output_video_path:
+                        shutil.copy2(final_video_with_audio, output_video_path)
+                        final_video_path = output_video_path
+                    else:
+                        final_video_path = final_video_with_audio
+                    
+                except subprocess.CalledProcessError as e:
+                    logger.warning(f"오디오 처리 중 오류 발생 (비디오만 저장): {e}")
+                    if e.stderr:
+                        try:
+                            logger.warning(f"ffmpeg 오류 출력: {e.stderr.decode('utf-8', errors='ignore')}")
+                        except:
+                            pass
+                    # 오디오 처리 실패 시 비디오만 저장
+                    final_video_path = output_video_path
+                except FileNotFoundError:
+                    logger.warning("ffmpeg가 설치되어 있지 않습니다. 오디오 없이 비디오만 저장됩니다.")
+                    final_video_path = output_video_path
+                except Exception as e:
+                    logger.warning(f"오디오 처리 중 예상치 못한 오류 발생 (비디오만 저장): {e}")
+                    final_video_path = output_video_path
+            except Exception as e:
+                logger.warning(f"오디오 처리 초기화 실패 (비디오만 저장): {e}")
+                final_video_path = output_video_path
+            finally:
+                # 임시 파일 정리 (오디오 관련)
+                if temp_audio_path and os.path.exists(temp_audio_path):
+                    try:
+                        os.unlink(temp_audio_path)
+                    except:
+                        pass
+                if temp_masked_audio_path and os.path.exists(temp_masked_audio_path):
+                    try:
+                        os.unlink(temp_masked_audio_path)
+                    except:
+                        pass
+                if temp_final_video_path and temp_final_video_path != final_video_path and os.path.exists(temp_final_video_path):
+                    try:
+                        os.unlink(temp_final_video_path)
+                    except:
+                        pass
+            
+            # 결과 비디오를 bytes로 읽기
+            with open(final_video_path, 'rb') as f:
+                masked_video_bytes = f.read()
+            
+            logger.info(f"영상 마스킹 완료: {len(masked_video_bytes)} bytes")
+            
+            # tests 폴더에 저장된 경우 저장 경로 로그 출력
+            if not output_is_temp:
+                logger.info(f"마스킹된 비디오가 저장되었습니다: {save_path}")
+            
+            return masked_video_bytes
+            
+        finally:
+            # 임시 파일 정리
+            # 입력 임시 파일 삭제 (base64인 경우)
+            if is_base64 and input_video_path and os.path.exists(input_video_path):
+                try:
+                    os.unlink(input_video_path)
+                    logger.debug(f"입력 임시 파일 삭제: {input_video_path}")
+                except Exception as e:
+                    logger.warning(f"입력 임시 파일 삭제 실패: {e}")
+            
+            # 출력 파일은 tests 폴더에 영구 저장되므로 삭제하지 않음
 
     def mask_pdf(self, pdf_path: str, text_blocks: List[Dict],
                  entities_per_block: List[List[Dict]],

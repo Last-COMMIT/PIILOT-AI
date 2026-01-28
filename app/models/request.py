@@ -59,7 +59,7 @@ class MaskingRequest(BaseModel):
     """마스킹 처리 요청"""
     file_type: str  # "document", "image", "audio", "video"
     file_data: str  # 원본 파일 데이터
-    detected_items: List[Dict]  # 탐지된 개인정보 리스트
+    detected_items: Optional[List[Dict]] = []  # 탐지된 개인정보 리스트 (오디오의 경우 비어있으면 자동 탐지)
     # document: [{"type": "name", "value": "홍길동", "start": 0, "end": 3}, ...]
     # image: [{"x": 100, "y": 200, "width": 50, "height": 50}, ...]
     # audio: [{"type": "name", "start_time": 1.5, "end_time": 2.0}, ...]

@@ -73,8 +73,9 @@ class AudioDetectionResponse(BaseModel):
 
 class VideoDetectionResponse(BaseModel):
     """영상 탐지 응답"""
-    faces: List[DetectedFace]
-    personal_info_in_audio: List[DetectedPersonalInfo]
+    success: bool
+    status: str  # "detected" or "no_pii"
+    message: str
 
 
 class MaskingResponse(BaseModel):
@@ -104,4 +105,3 @@ class RegulationSearchResponse(BaseModel):
     """법령 검색 응답"""
     answer: str  # AI 응답
     sources: List[RegulationSearchResult]  # 참고 문서 리스트
-

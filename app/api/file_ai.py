@@ -25,11 +25,12 @@ from app.services.file.video_detector import VideoDetector
 from app.services.file.masker import Masker
 from app.utils.logger import logger
 from app.utils.image_loader import load_image
+from app.config import MODEL_PATH
 
 router = APIRouter()
 
 # 서비스 인스턴스
-document_detector = DocumentDetector()
+document_detector = DocumentDetector(model_path=MODEL_PATH)
 image_detector = ImageDetector()
 audio_detector = AudioDetector()
 video_detector = VideoDetector()
@@ -227,14 +228,35 @@ async def detect_video_personal_info(request: VideoDetectionRequest):
         
         result = video_detector.detect(request.video_data)
         
+        # 탐지 결과 확인
+        faces = result.get("faces", [])
+        personal_info_in_audio = result.get("personal_info_in_audio", [])
+        
+        # 개인정보 탐지 여부 확인
+        has_pii = len(faces) > 0 or len(personal_info_in_audio) > 0
+        
+        if has_pii:
+            status = "detected"
+            message = f"개인정보가 탐지되었습니다. (얼굴: {len(faces)}개, 오디오: {len(personal_info_in_audio)}개)"
+        else:
+            status = "no_pii"
+            message = "개인정보가 탐지되지 않았습니다."
+        
+        logger.info(f"영상 탐지 결과: {status} - {message}")
+        
         return VideoDetectionResponse(
-            faces=result.get("faces", []),
-            personal_info_in_audio=result.get("personal_info_in_audio", [])
+            success=True,
+            status=status,
+            message=message
         )
     
     except Exception as e:
         logger.error(f"영상 탐지 오류: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return VideoDetectionResponse(
+            success=False,
+            status="error",
+            message=f"영상 탐지 중 오류가 발생했습니다: {str(e)}"
+        )
 
 
 @router.post("/mask", response_model=MaskingResponse)
@@ -243,7 +265,8 @@ async def apply_masking(request: MaskingRequest):
     마스킹 처리
     """
     try:
-        logger.info(f"마스킹 요청: 타입={request.file_type}, 항목 수={len(request.detected_items)}")
+        detected_items_count = len(request.detected_items) if request.detected_items else 0
+        logger.info(f"마스킹 요청: 타입={request.file_type}, 항목 수={detected_items_count}")
         
         masked_data = None
         
@@ -256,13 +279,32 @@ async def apply_masking(request: MaskingRequest):
             masked_data = base64.b64encode(masked_bytes).decode()
         
         elif request.file_type == "audio":
-            masked_bytes = masker.mask_audio(request.file_data, request.detected_items)
+            # detected_items가 비어있으면 자동 탐지 수행
+            if not request.detected_items:
+                logger.info("오디오 detected_items가 비어있어 자동 탐지를 수행합니다.")
+                detected_items = audio_detector.detect(request.file_data)
+                logger.info(f"자동 탐지 완료: {len(detected_items)}개 항목 발견")
+            else:
+                detected_items = request.detected_items
+                logger.info(f"제공된 detected_items 사용: {len(detected_items)}개 항목")
+            
+            masked_bytes = masker.mask_audio(request.file_data, detected_items)
             masked_data = base64.b64encode(masked_bytes).decode()
         
         elif request.file_type == "video":
-            # video는 faces와 audio_items 분리 필요
-            faces = [item for item in request.detected_items if "x" in item]
-            audio_items = [item for item in request.detected_items if "start_time" in item]
+            # detected_items가 비어있으면 자동 탐지 수행
+            if not request.detected_items:
+                logger.info("비디오 detected_items가 비어있어 자동 탐지를 수행합니다.")
+                detection_result = video_detector.detect(request.file_data)
+                faces = detection_result.get("faces", [])
+                audio_items = detection_result.get("personal_info_in_audio", [])
+                logger.info(f"자동 탐지 완료: 얼굴 {len(faces)}개, 오디오 항목 {len(audio_items)}개 발견")
+            else:
+                # video는 faces와 audio_items 분리 필요
+                faces = [item for item in request.detected_items if "x" in item]
+                audio_items = [item for item in request.detected_items if "start_time" in item]
+                logger.info(f"제공된 detected_items 사용: 얼굴 {len(faces)}개, 오디오 항목 {len(audio_items)}개")
+            
             masked_bytes = masker.mask_video(request.file_data, faces, audio_items)
             masked_data = base64.b64encode(masked_bytes).decode()
         
