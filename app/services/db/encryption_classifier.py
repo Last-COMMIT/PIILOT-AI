@@ -105,9 +105,7 @@ class EncryptionClassifier:
             return "되어있음" # PII 식별 안됨 -> 암호화 됨
     
     def classify(self, connection_id: str, table_name: str, column_name: str) -> Dict[str, Any]:
-        """
-        데이터 샘플의 암호화 여부 판단 (DB 접속 포함)
-        """
+        """데이터 샘플의 암호화 여부 판단 (DB 접속 포함)."""
         try:
             logger.info(f"암호화 여부 판단 시작: connection_id={connection_id}, table={table_name}, column={column_name}")
             
@@ -137,18 +135,24 @@ class EncryptionClassifier:
                 return {
                     "table_name": table_name,
                     "column_name": column_name,
-                    "encryption_status": "판단불가", 
-                    "reason": "데이터 없음"
+                    "encryption_status": "판단불가",
+                    "total_records": 0,
+                    "encrypted_records": 0,
+                    "reason": "데이터 없음",
                 }
             
-            # 4. 암호화 여부 진단
-            status = self.check_encryption(values)
+            # 4. PII 분류 (샘플별 결과 사용)
+            pii_results = classify_batch(values, model_dir=self.model_path)
+            encrypted_count = sum(1 for r in pii_results if r == "NONE")
+            pii_detected_count = sum(1 for r in pii_results if r != "NONE")
+            status = "안되어있음" if pii_detected_count > 0 else "되어있음"
             
             return {
                 "table_name": table_name,
                 "column_name": column_name,
                 "encryption_status": status,
-                "total_records": total_records
+                "total_records": total_records,
+                "encrypted_records": encrypted_count,
             }
         
         except Exception as e:
@@ -157,5 +161,5 @@ class EncryptionClassifier:
                 "table_name": table_name,
                 "column_name": column_name,
                 "encryption_status": "에러",
-                "error_message": str(e)
+                "error_message": str(e),
             }

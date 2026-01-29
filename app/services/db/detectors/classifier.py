@@ -30,8 +30,39 @@ except ImportError:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from bank_info import BANK_CODES, MOBILE_PREFIXES, BANK_ACCT_LENGTHS, SPECIAL_ACCT_PATTERNS, COMMON_ACCT_PREFIXES
 
+try:
+    from app.core.model_manager import ModelManager
+except ImportError:
+    ModelManager = None
+
+import xgboost as xgb
+
 # XGBoost 경고 메시지 무시
 warnings.filterwarnings('ignore', category=UserWarning, module='xgboost')
+
+
+def _predict_with_booster(model, features_df: pd.DataFrame, feature_names: List[str], output_proba: bool = False) -> np.ndarray:
+    """
+    sklearn wrapper 검증 우회: Booster + DMatrix(feature_names=)로 예측.
+    'data did not contain feature names' 오류 방지.
+    """
+    names = list(feature_names)
+    try:
+        if hasattr(model, 'get_booster'):
+            booster_names = model.get_booster().feature_names
+            if booster_names is not None and len(booster_names) == len(names):
+                names = [str(n) for n in booster_names]
+    except Exception:
+        pass
+    names = [str(n) for n in names]
+    arr = features_df[names].to_numpy()
+    dmat = xgb.DMatrix(arr, feature_names=names)
+    preds = model.get_booster().predict(dmat, output_margin=False)
+    if output_proba:
+        return preds
+    if preds.ndim == 2:
+        return np.argmax(preds, axis=1)
+    return preds
 
 
 def _extract_features(value: str, text_feature_names: Optional[List[str]] = None) -> Dict[str, float]:
@@ -268,18 +299,21 @@ def classify(value: str, model_dir: Optional[str] = None) -> str:
     
     # ===== 모델 로드 (최초 1회만) =====
     if _model is None:
-        # 모델 디렉토리 경로 설정
-        if model_dir is None:
+        if model_dir is None and ModelManager is not None:
+            model_path = Path(ModelManager.get_local_model_path("xgboost"))
+            model_dir = model_path.parent
+        elif model_dir is None:
             model_dir = Path(__file__).parent / "model"
+            model_path = model_dir / "pii_xgboost_model.pkl"
         else:
             model_dir = Path(model_dir)
+            model_path = model_dir / "pii_xgboost_model.pkl"
         
         # 메인 모델 로드 (다중 클래스 분류기)
-        model_path = model_dir / "pii_xgboost_model.pkl"
         with open(model_path, 'rb') as f:
             data = pickle.load(f)
         _model = data['model']  # XGBoost 모델 객체
-        _feature_names = data['feature_names']  # 모델이 사용하는 특징 이름 리스트
+        _feature_names = list(data['feature_names'])  # 모델이 사용하는 특징 이름 리스트 (list로 통일)
         _pii_types = data['pii_types']  # PII 타입 매핑
         _use_two_stage = data.get('use_two_stage', False)  # 2단계 분류 사용 여부
         _reverse_mapping = data.get('reverse_other_class_mapping', None)  # 레이블 재매핑 (2단계 분류 시 필요)
@@ -305,21 +339,19 @@ def classify(value: str, model_dir: Optional[str] = None) -> str:
             features_df[name] = 0.0
     features_df = features_df[_feature_names]  # 특징 순서 맞추기
     
-    # ===== 2단계 분류: 계좌번호 이진 분류 =====
-    # 먼저 계좌번호인지 확인 (False Negative 최소화를 위해 낮은 임계값 0.3 사용)
+    # Booster + DMatrix(feature_names=)로 예측 (sklearn wrapper 검증 우회)
     if _use_two_stage and _acn_model is not None:
-        acn_prob = _acn_model.predict_proba(features_df)[0]  # 계좌번호일 확률
-        acn_prob_positive = acn_prob[1] if len(acn_prob) > 1 else acn_prob[0]  # 양성 클래스 확률
-        if acn_prob_positive >= 0.3:  # 임계값 이상이면 계좌번호로 판단
+        acn_probs = _predict_with_booster(_acn_model, features_df, _feature_names, output_proba=True)
+        acn_prob = np.atleast_1d(acn_probs[0])
+        acn_prob_positive = float(acn_prob[1] if len(acn_prob) > 1 else acn_prob[0])
+        if acn_prob_positive >= 0.3:
             return 'p_acn'
     
-    # ===== 메인 모델 예측 =====
-    # 계좌번호가 아니면 나머지 클래스 분류
-    pred_mapped = _model.predict(features_df)[0]  # 예측 결과 (재매핑된 레이블)
+    preds = _predict_with_booster(_model, features_df, _feature_names, output_proba=False)
+    pred_mapped = int(preds[0])
     
-    # 2단계 분류 사용 시: 재매핑된 레이블을 원본 레이블로 변환
     if _use_two_stage and _reverse_mapping is not None:
-        pred = _reverse_mapping[pred_mapped]
+        pred = _reverse_mapping.get(pred_mapped, pred_mapped)
     else:
         pred = pred_mapped
     
@@ -348,16 +380,20 @@ def classify_batch(values: List[str], model_dir: Optional[str] = None) -> List[s
     # ===== 모델 로드 (최초 1회만) =====
     # classify() 함수와 동일한 로직
     if _model is None:
-        if model_dir is None:
+        if model_dir is None and ModelManager is not None:
+            model_path = Path(ModelManager.get_local_model_path("xgboost"))
+            model_dir = model_path.parent
+        elif model_dir is None:
             model_dir = Path(__file__).parent / "model"
+            model_path = model_dir / "pii_xgboost_model.pkl"
         else:
             model_dir = Path(model_dir)
+            model_path = model_dir / "pii_xgboost_model.pkl"
         
-        model_path = model_dir / "pii_xgboost_model.pkl"
         with open(model_path, 'rb') as f:
             data = pickle.load(f)
         _model = data['model']
-        _feature_names = data['feature_names']
+        _feature_names = list(data['feature_names'])
         _pii_types = data['pii_types']
         _use_two_stage = data.get('use_two_stage', False)
         _reverse_mapping = data.get('reverse_other_class_mapping', None)
@@ -384,24 +420,23 @@ def classify_batch(values: List[str], model_dir: Optional[str] = None) -> List[s
     reverse_pii_types = {v: k for k, v in _pii_types.items()}
     results = []
     
-    # ===== 2단계 분류: 계좌번호 이진 분류 =====
+    # Booster + DMatrix(feature_names=)로 예측 (sklearn wrapper 검증 우회)
     if _use_two_stage and _acn_model is not None:
-        acn_probs = _acn_model.predict_proba(features_df)  # 모든 값에 대한 계좌번호 확률
-        other_preds = _model.predict(features_df)  # 모든 값에 대한 나머지 클래스 예측
+        acn_probs = _predict_with_booster(_acn_model, features_df, _feature_names, output_proba=True)
+        other_preds = _predict_with_booster(_model, features_df, _feature_names, output_proba=False)
         
         for i in range(len(values)):
-            acn_prob_positive = acn_probs[i][1] if len(acn_probs[i]) > 1 else acn_probs[i][0]
-            if acn_prob_positive >= 0.3:  # 계좌번호로 판단
+            acn_p = np.atleast_1d(acn_probs[i])
+            acn_prob_positive = float(acn_p[1] if len(acn_p) > 1 else acn_p[0])
+            if acn_prob_positive >= 0.3:
                 results.append('p_acn')
             else:
-                # 계좌번호가 아니면 나머지 클래스 분류 결과 사용
-                pred_mapped = other_preds[i]
-                pred = _reverse_mapping[pred_mapped] if _reverse_mapping else pred_mapped
+                pred_mapped = int(other_preds[i])
+                pred = _reverse_mapping.get(pred_mapped, pred_mapped) if _reverse_mapping else pred_mapped
                 results.append(reverse_pii_types[pred])
     else:
-        # ===== 1단계 분류 (기존 방식) =====
-        preds = _model.predict(features_df)
+        preds = _predict_with_booster(_model, features_df, _feature_names, output_proba=False)
         for pred in preds:
-            results.append(reverse_pii_types[pred])
+            results.append(reverse_pii_types[int(pred)])
     
     return results
