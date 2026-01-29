@@ -75,3 +75,11 @@ def get_pii_column_classifier():
     from app.services.db.pii_column_classifier import PIIColumnClassifier
     logger.info("PIIColumnClassifier 의존성 생성")
     return PIIColumnClassifier()
+
+
+@lru_cache
+def get_langgraph_chatbot():
+    """LangGraph 챗봇 앱 의존성"""
+    from app.services.chat.langgraph_chatbot import create_chatbot_app
+    logger.info("LangGraph 챗봇 의존성 생성")
+    return create_chatbot_app()

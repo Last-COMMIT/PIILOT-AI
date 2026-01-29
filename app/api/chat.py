@@ -8,9 +8,12 @@ from app.schemas.chat import (
     RegulationSearchRequest,
     RegulationSearchResponse,
     RegulationSearchResult,
+    LangGraphChatRequest,
+    LangGraphChatResponse,
 )
-from app.api.deps import get_assistant, get_regulation_search
+from app.api.deps import get_assistant, get_regulation_search, get_langgraph_chatbot
 from app.core.logging import logger
+import time
 
 router = APIRouter()
 
@@ -57,3 +60,84 @@ async def search_regulations(
         answer=results.get("answer", ""),
         sources=sources,
     )
+
+
+@router.post("/chat/langgraph", response_model=LangGraphChatResponse)
+async def langgraph_chat(
+    request: LangGraphChatRequest,
+    chatbot=Depends(get_langgraph_chatbot),
+):
+    """LangGraph Self-RAG 챗봇"""
+    total_start_time = time.time()
+    logger.info(f"[LangGraph 챗봇 시작] 질의: {request.question[:50]}..., conversation_id={request.conversation_id}")
+
+    try:
+        # 초기 상태 구성
+        config = {
+            "configurable": {
+                "thread_id": request.conversation_id
+            }
+        }
+
+        initial_state = {
+            "user_question": request.question,
+            "conversation_id": request.conversation_id,
+            "messages": [],
+            "query_type": "",
+            "db_result": None,
+            "vector_docs": [],
+            "reranked_docs": [],
+            "final_answer": "",
+            "relevance_score": None,
+            "is_relevant": None,
+            "hallucination_score": None,
+            "is_grounded": None,
+            "retry_count": 0,
+            "search_query_version": 0,
+            "generation_retry_count": 0,
+        }
+
+        # LangGraph 실행
+        graph_start_time = time.time()
+        result = chatbot.invoke(initial_state, config)
+        graph_elapsed = time.time() - graph_start_time
+        logger.debug(f"LangGraph 실행 완료 (소요 시간: {graph_elapsed:.2f}초)")
+
+        # 응답 구성
+        sources = []
+        if result.get("reranked_docs"):
+            for doc in result["reranked_docs"]:
+                metadata = doc.get("metadata", {})
+                law_name = metadata.get("law_name", "")
+                article = metadata.get("article", "")
+                if law_name or article:
+                    sources.append(f"{law_name} {article}".strip())
+        elif result.get("vector_docs"):
+            for doc in result["vector_docs"]:
+                metadata = doc.get("metadata", {})
+                law_name = metadata.get("law_name", "")
+                article = metadata.get("article", "")
+                if law_name or article:
+                    sources.append(f"{law_name} {article}".strip())
+
+        total_elapsed = time.time() - total_start_time
+        logger.info(f"[LangGraph 챗봇 완료] 총 소요 시간: {total_elapsed:.2f}초, query_type={result.get('query_type', 'general')}, answer_length={len(result.get('final_answer', ''))}자")
+
+        return LangGraphChatResponse(
+            answer=result.get("final_answer", ""),
+            sources=sources,
+            query_type=result.get("query_type", "general"),
+            relevance_score=result.get("relevance_score"),
+            hallucination_score=result.get("hallucination_score"),
+        )
+
+    except Exception as e:
+        total_elapsed = time.time() - total_start_time
+        logger.error(f"[LangGraph 챗봇 실패] 총 소요 시간: {total_elapsed:.2f}초, 오류: {str(e)}", exc_info=True)
+        return LangGraphChatResponse(
+            answer=f"죄송합니다. 챗봇 실행 중 오류가 발생했습니다: {str(e)}",
+            sources=[],
+            query_type="general",
+            relevance_score=None,
+            hallucination_score=None,
+        )
