@@ -7,6 +7,7 @@ from torch import Tensor
 import torch
 import torch.nn.functional as F
 from app.core.logging import logger
+from app.core.model_manager import ModelManager
 
 
 class EmbeddingModel:
@@ -35,8 +36,13 @@ class EmbeddingModel:
             model_start_time = time.time()
             logger.info(f"임베딩 모델 로드 시작: {self.model_name}")
             try:
-                EmbeddingModel._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                EmbeddingModel._model = AutoModel.from_pretrained(self.model_name)
+                cache_dir = ModelManager.get_cache_dir()
+                EmbeddingModel._tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_name, cache_dir=cache_dir
+                )
+                EmbeddingModel._model = AutoModel.from_pretrained(
+                    self.model_name, cache_dir=cache_dir
+                )
                 EmbeddingModel._model.eval()
                 model_load_time = time.time() - model_start_time
                 logger.info(f"임베딩 모델 로드 완료 (소요 시간: {model_load_time:.2f}초)")

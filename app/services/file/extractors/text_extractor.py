@@ -1,16 +1,16 @@
 import os
-import easyocr
-import fitz  # PyMuPDF
-from docx import Document
 from typing import List, Dict, Tuple, Optional
 import tempfile
 import warnings
+from app.core.logging import logger
 
 warnings.filterwarnings('ignore')
 
 class TextExtractor:
     """다양한 파일에서 텍스트 추출"""
     def __init__(self, use_gpu=True):
+        # 지연 import: easyocr은 무거운 라이브러리
+        import easyocr
         self.reader = easyocr.Reader(['ko', 'en'], gpu=use_gpu)
 
     def extract_from_image(self, image_path: str) -> List[Dict]:
@@ -83,12 +83,18 @@ class TextExtractor:
                 'confidence': float(conf)
             })
 
-        print(f"{len(extracted)}개 텍스트 블록 추출 (병합됨)")
+        logger.debug(f"{len(extracted)}개 텍스트 블록 추출 (병합됨)")
         return extracted
 
     def extract_from_pdf(self, pdf_path: str) -> List[Dict]:
         """PDF에서 텍스트 추출"""
-        print(f"PDF 텍스트 추출: {pdf_path}")
+        try:
+            import fitz  # PyMuPDF - lazy import
+        except ImportError:
+            logger.error("PyMuPDF (fitz) 모듈이 설치되지 않았습니다. 'pip install pymupdf'를 실행하세요.")
+            raise ImportError("PyMuPDF (fitz) 모듈이 필요합니다.")
+        
+        logger.info(f"PDF 텍스트 추출: {pdf_path}")
         doc = fitz.open(pdf_path)
         all_extracted = []
         total_pages = len(doc)
@@ -124,7 +130,7 @@ class TextExtractor:
                             'confidence': 1.0
                         })
             else:
-                print(f"페이지 {page_num+1}: 텍스트 레이어 부족 ({total_text_len}자) -> 이미지 변환 후 OCR 수행")
+                logger.debug(f"페이지 {page_num+1}: 텍스트 레이어 부족 ({total_text_len}자) -> 이미지 변환 후 OCR 수행")
                 pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
                 img_path = os.path.join(temp_dir, f"page_{page_num}.png")
                 pix.save(img_path)
@@ -142,12 +148,18 @@ class TextExtractor:
                     os.remove(img_path)
 
         doc.close()
-        print(f"  ✓ {len(all_extracted)}개 텍스트 블록 추출 (총 {total_pages}페이지)")
+        logger.info(f"✓ {len(all_extracted)}개 텍스트 블록 추출 (총 {total_pages}페이지)")
         return all_extracted
 
     def extract_from_docx(self, docx_path: str) -> List[Dict]:
         """DOCX에서 텍스트 추출 (문단 + 표)"""
-        print(f"DOCX 텍스트 추출: {docx_path}")
+        try:
+            from docx import Document
+        except ImportError:
+            logger.error("python-docx 모듈이 설치되지 않았습니다. 'pip install python-docx'를 실행하세요.")
+            raise ImportError("python-docx 모듈이 필요합니다.")
+        
+        logger.info(f"DOCX 텍스트 추출: {docx_path}")
         doc = Document(docx_path)
         extracted = []
 
@@ -175,12 +187,12 @@ class TextExtractor:
                                 'text': para.text
                             })
 
-        print(f"{len(extracted)}개 텍스트 블록(문단+표) 추출")
+        logger.debug(f"{len(extracted)}개 텍스트 블록(문단+표) 추출")
         return extracted
 
     def extract_from_txt(self, txt_path: str) -> List[Dict]:
         """TXT에서 텍스트 추출"""
-        print(f"TXT 텍스트 추출: {txt_path}")
+        logger.info(f"TXT 텍스트 추출: {txt_path}")
         with open(txt_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
@@ -192,5 +204,5 @@ class TextExtractor:
                     'line_idx': idx
                 })
 
-        print(f"{len(extracted)}개 라인 추출")
+        logger.debug(f"{len(extracted)}개 라인 추출")
         return extracted

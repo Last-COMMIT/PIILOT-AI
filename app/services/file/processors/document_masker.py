@@ -2,8 +2,6 @@
 문서 마스킹 처리 (PDF, DOCX, TXT, 텍스트)
 (기존 masker.py에서 분리)
 """
-import fitz
-from docx import Document
 from typing import List, Dict
 from app.core.logging import logger
 
@@ -31,6 +29,12 @@ class DocumentMasker:
     def mask_pdf(self, pdf_path: str, text_blocks: List[Dict],
                  entities_per_block: List[List[Dict]], output_path: str):
         """PDF의 PII 영역을 정밀하게 마스킹"""
+        try:
+            import fitz  # PyMuPDF - lazy import
+        except ImportError:
+            logger.error("PyMuPDF (fitz) 모듈이 설치되지 않았습니다. 'pip install pymupdf'를 실행하세요.")
+            raise ImportError("PyMuPDF (fitz) 모듈이 필요합니다.")
+        
         doc = fitz.open(pdf_path)
         for block, entities in zip(text_blocks, entities_per_block):
             if not entities:
@@ -65,6 +69,12 @@ class DocumentMasker:
     def mask_docx(self, docx_path: str, paragraphs: List[Dict],
                   entities_per_para: List[List[Dict]], output_path: str):
         """DOCX의 PII를 마스킹 (문단 및 표 지원)"""
+        try:
+            from docx import Document
+        except ImportError:
+            logger.error("python-docx 모듈이 설치되지 않았습니다. 'pip install python-docx'를 실행하세요.")
+            raise ImportError("python-docx 모듈이 필요합니다.")
+        
         doc = Document(docx_path)
         for para_info, entities in zip(paragraphs, entities_per_para):
             if not entities:

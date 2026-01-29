@@ -1,17 +1,12 @@
 
 import cv2
-import fitz
 import numpy as np
 from typing import List, Dict
-from docx import Document
 from pathlib import Path
 from app.utils.logger import logger
-from app.utils.image_loader import load_image
+from app.utils.image_utils import load_image
 from app.services.file.audio_masking import audio_pii_service
-
-# Helper for image loading (simulating app.utils.image_loader)
-def load_image(image_path: str):
-    return cv2.imread(image_path)
+from app.core.config import VIDEO_OUTPUT_DIR
 
 class Masker:
     """파일 마스킹 처리 (문서, 이미지, 오디오, 비디오 통합)"""
@@ -52,7 +47,7 @@ class Masker:
         # 이미지 로드 (공통 유틸리티 사용)
         img = load_image(image_path)
         if img is None:
-            print(f"이미지 로드 실패: {image_path}")
+            logger.error(f"이미지 로드 실패: {image_path}")
             return b""
         
         # 얼굴 마스킹 처리
@@ -139,37 +134,22 @@ class Masker:
         is_base64 = False
         output_is_temp = False
         
-        # save_path가 지정되지 않으면 프로젝트 루트의 tests 폴더에 저장
+        # save_path가 지정되지 않으면 VIDEO_OUTPUT_DIR에 저장
         if save_path is None:
-            # 프로젝트 루트 찾기 (app/services/file/masker.py 기준 상위 3단계)
-            current_file = Path(__file__).resolve()
-            project_root = current_file.parent.parent.parent.parent  # app/services/file -> app/services -> app -> root
-            tests_dir = project_root / "tests"
-            tests_dir.mkdir(exist_ok=True)
-            
             # 타임스탬프 기반 파일명 생성
             import datetime
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            save_path = str(tests_dir / f"masked_video_{timestamp}.mp4")
+            save_path = str(Path(VIDEO_OUTPUT_DIR) / f"masked_video_{timestamp}.mp4")
             output_is_temp = False  # 영구 저장
-            logger.info(f"프로젝트 루트의 tests 폴더에 저장: {save_path}")
+            logger.info(f"비디오 출력 디렉토리에 저장: {save_path}")
         
         # base64인지 확인
         if video_path.startswith("data:video") or len(video_path) > 1000:
             is_base64 = True
             # base64 디코딩하여 임시 파일로 저장
             try:
-                if "," in video_path:
-                    base64_data = video_path.split(",")[1]
-                else:
-                    base64_data = video_path
-                
-                video_bytes = base64.b64decode(base64_data)
-                temp_input = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-                temp_input.write(video_bytes)
-                temp_input.close()
-                input_video_path = temp_input.name
-                logger.info("Base64 비디오를 임시 파일로 저장했습니다.")
+                from app.utils.base64_utils import decode_base64_to_temp_file
+                input_video_path = decode_base64_to_temp_file(video_path, suffix='.mp4')
             except Exception as e:
                 logger.error(f"Base64 비디오 디코딩 오류: {e}")
                 raise ValueError(f"비디오 디코딩 실패: {e}")
@@ -340,6 +320,12 @@ class Masker:
                  entities_per_block: List[List[Dict]],
                  output_path: str):
         """PDF의 PII 영역을 정밀하게 마스킹"""
+        try:
+            import fitz  # PyMuPDF - lazy import
+        except ImportError:
+            logger.error("PyMuPDF (fitz) 모듈이 설치되지 않았습니다. 'pip install pymupdf'를 실행하세요.")
+            raise ImportError("PyMuPDF (fitz) 모듈이 필요합니다.")
+        
         doc = fitz.open(pdf_path)
 
         for block, entities in zip(text_blocks, entities_per_block):
@@ -375,16 +361,22 @@ class Masker:
                         fallback_rect = fitz.Rect(bx0, by0, bx1, by1)
                         page.draw_rect(fallback_rect, color=(0, 0, 0), fill=(0, 0, 0))
                     except Exception as e:
-                        print(f"  [Warning] Fallback masking failed: {e}")
+                        logger.warning(f"Fallback masking failed: {e}")
 
         doc.save(output_path)
         doc.close()
-        print(f"PDF 저장: {output_path}")
+        logger.info(f"PDF 저장: {output_path}")
 
     def mask_docx(self, docx_path: str, paragraphs: List[Dict],
                   entities_per_para: List[List[Dict]],
                   output_path: str):
         """DOCX의 PII를 마스킹 (문단 및 표 지원)"""
+        try:
+            from docx import Document
+        except ImportError:
+            logger.error("python-docx 모듈이 설치되지 않았습니다. 'pip install python-docx'를 실행하세요.")
+            raise ImportError("python-docx 모듈이 필요합니다.")
+        
         doc = Document(docx_path)
 
         for para_info, entities in zip(paragraphs, entities_per_para):
@@ -412,11 +404,11 @@ class Masker:
             except IndexError:
                 continue
             except Exception as e:
-                print(f"마스킹 중 오류 발생: {e}")
+                logger.error(f"마스킹 중 오류 발생: {e}")
                 continue
 
         doc.save(output_path)
-        print(f"DOCX 저장: {output_path}")
+        logger.info(f"DOCX 저장: {output_path}")
 
     def mask_txt(self, txt_path: str, lines: List[Dict],
                  entities_per_line: List[List[Dict]],
@@ -437,4 +429,4 @@ class Masker:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.writelines(all_lines)
 
-        print(f"TXT 저장: {output_path}")
+        logger.info(f"TXT 저장: {output_path}")

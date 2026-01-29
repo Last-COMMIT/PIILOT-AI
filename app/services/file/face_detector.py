@@ -1,24 +1,36 @@
-from ultralytics import YOLO
 import cv2
 import numpy as np
+import os
+from pathlib import Path
+from app.core.model_manager import ModelManager
 # from .base import DetectionModel
 
 # class YOLOFaceDetector(DetectionModel):
 class YOLOFaceDetector():
     # def __init__(self, model_path="src/data/models/face_detection_model.pt"):
-    def __init__(self, model_path="models/vision/yolov12n-face.pt", 
+    def __init__(self, model_path=None, 
                  conf_threshold=0.25, 
                  iou_threshold=0.45,
                  imgsz=640,
                  enhance_image=True):
         """
         Args:
-            model_path: 모델 파일 경로
+            model_path: 모델 파일 경로 (None이면 기본 모델 사용, 직접 전달 시 절대 경로)
             conf_threshold: Confidence threshold (낮을수록 더 많은 얼굴 감지)
             iou_threshold: IoU threshold for NMS (낮을수록 더 많은 얼굴 감지)
             imgsz: 입력 이미지 크기 (큰 값일수록 정확하지만 느림)
             enhance_image: 이미지 전처리 적용 여부
         """
+        try:
+            from ultralytics import YOLO  # lazy import
+        except ImportError:
+            raise ImportError("ultralytics 모듈이 설치되지 않았습니다. 'pip install ultralytics'를 실행하세요.")
+        
+        # 기본 모델 경로 설정 (중앙 관리)
+        if model_path is None:
+            model_path = ModelManager.get_local_model_path("yolo_face")
+        # 사용자가 직접 경로를 전달한 경우 절대 경로로 가정
+        
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold

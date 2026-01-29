@@ -25,6 +25,7 @@ except ImportError:
     pass  # 실제 환경에서는 requirements.txt로 관리 권장
 
 from app.utils.logger import logger
+from app.core.config import AUDIO_OUTPUT_DIR
 
 # ==================== 설정 ====================
 PII_NAMES = {
@@ -49,218 +50,10 @@ CONFIDENCE_THRESHOLDS = {
     'p_passport': 0.90,
 }
 
-# ==================== 정규식 PII 탐지기 ====================
-class EnhancedRegexPIIDetector:
-    """향상된 정규식 PII 탐지기"""
-    def __init__(self):
-        pass
-
-    def detect_phones(self, text: str) -> List[Dict]:
-        entities = []
-        seen = set()
-        patterns = [
-            (r'01[016789]-\d{3,4}-\d{4}', 'mobile'),
-            (r'0(?:2|3[1-3]|4[1-4]|5[1-5]|6[1-4])-\d{3,4}-\d{4}', 'landline'),
-            (r'01[016789]\d{7,8}', 'mobile-no-hyphen'),
-        ]
-        for pattern, phone_type in patterns:
-            for match in re.finditer(pattern, text):
-                phone = match.group()
-                digits = re.sub(r'\D', '', phone)
-                if 9 <= len(digits) <= 11 and digits not in seen:
-                    seen.add(digits)
-                    entities.append({
-                        'text': phone,
-                        'label': 'p_ph',
-                        'start': match.start(),
-                        'end': match.end(),
-                        'confidence': 1.0,
-                        'method': f'regex-{phone_type}'
-                    })
-        return entities
-
-    def detect_emails(self, text: str) -> List[Dict]:
-        entities = []
-        standard_pattern = r'[a-zA-Z0-9][a-zA-Z0-9._+-]*@[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}'
-        for match in re.finditer(standard_pattern, text):
-            entities.append({
-                'text': match.group(),
-                'label': 'p_em',
-                'start': match.start(),
-                'end': match.end(),
-                'confidence': 1.0,
-                'method': 'regex-standard'
-            })
-        return entities
-
-    def detect_addresses(self, text: str) -> List[Dict]:
-        entities = []
-        patterns = [
-            r'[가-힣]{2,}(?:특별시|광역시|도)\s+[가-힣]{2,}(?:시|군|구)\s+[가-힣]{2,}(?:로|길)\s+\d+[가-힣0-9\s-]*',
-            r'[가-힣]{2,}\s+[가-힣]{2,}(?:시|군|구)\s+[가-힣]{2,}(?:로|길)?\s*\d*[가-힣0-9\s-]*',
-            r'[가-힣]{2,}(?:시|군|구)\s+[가-힣]{2,}(?:로|길)\s+\d+[가-힣0-9\s-]*',
-            r'[가-힣]{2,}구\s+[가-힣]{2,}(?:로|길)\s+\d+[가-힣0-9\s-]*',
-            r'[가-힣]{2,}(?:시|구)\s+[가-힣]{2,}동(?:\s+\d+)?',
-        ]
-        for pattern in patterns:
-            for match in re.finditer(pattern, text):
-                address = match.group().strip()
-                if self._is_valid_address_structure(address):
-                    entities.append({
-                        'text': address,
-                        'label': 'p_add',
-                        'start': match.start(),
-                        'end': match.end(),
-                        'confidence': 1.0,
-                        'method': 'regex'
-                    })
-        return entities
-
-    def _is_valid_address_structure(self, address: str) -> bool:
-        if len(address) < 8: return False
-        has_admin = any(kw in address for kw in ['도', '시', '군', '구'])
-        has_location = any(kw in address for kw in ['로', '길', '동'])
-        return has_admin and has_location
-
-    def detect_rrn(self, text: str) -> List[Dict]:
-        entities = []
-        patterns = [r'\d{6}-[1-4]\d{6}', r'(?<!\d)\d{13}(?!\d)']
-        for pattern in patterns:
-            for match in re.finditer(pattern, text):
-                rrn = match.group()
-                digits = re.sub(r'\D', '', rrn)
-                if len(digits) == 13 and digits[6] in '1234':
-                    entities.append({
-                        'text': rrn,
-                        'label': 'p_rrn',
-                        'start': match.start(),
-                        'end': match.end(),
-                        'confidence': 1.0,
-                        'method': 'regex'
-                    })
-        return entities
-
-    def detect_ip(self, text: str) -> List[Dict]:
-        entities = []
-        pattern = r'(?<!\d)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)'
-        for match in re.finditer(pattern, text):
-            try:
-                ip = match.group()
-                if all(0 <= int(x) <= 255 for x in ip.split('.')):
-                    entities.append({
-                        'text': ip,
-                        'label': 'p_ip',
-                        'start': match.start(),
-                        'end': match.end(),
-                        'confidence': 1.0,
-                        'method': 'regex'
-                    })
-            except: pass
-        return entities
-
-    def detect_names(self, text: str) -> List[Dict]:
-        # 간단한 이름 탐지 (실제로는 LLM/NER이 더 정확함)
-        return []
-
-    def detect_all(self, text: str) -> List[Dict]:
-        all_entities = []
-        all_entities.extend(self.detect_rrn(text))
-        all_entities.extend(self.detect_phones(text))
-        all_entities.extend(self.detect_emails(text))
-        all_entities.extend(self.detect_addresses(text))
-        all_entities.extend(self.detect_ip(text))
-        
-        # 중복 제거
-        seen = set()
-        unique = []
-        for entity in all_entities:
-            key = (entity['start'], entity['end'], entity['label'])
-            if key not in seen:
-                seen.add(key)
-                unique.append(entity)
-        unique.sort(key=lambda x: x['start'])
-        return unique
-
-
-# ==================== DL 기반 PII 탐지기 (KoELECTRA) ====================
-class KoELECTRAPIIDetector:
-    def __init__(self, model_path: str, confidence_thresholds: Dict[str, float] = None):
-        if not confidence_thresholds:
-            confidence_thresholds = CONFIDENCE_THRESHOLDS
-        self.confidence_thresholds = confidence_thresholds
-        self.model = None
-        
-        try:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-            self.model = AutoModelForTokenClassification.from_pretrained(model_path)
-            self.model.to(self.device)
-            self.model.eval()
-            self.id2label = self.model.config.id2label
-            logger.info(f"KoELECTRA 모델 로드 완료: {model_path}")
-        except Exception as e:
-            logger.error(f"KoELECTRA 모델 로드 실패: {e}")
-            self.model = None
-
-    def detect_pii(self, text: str) -> List[Dict]:
-        if not self.model or not text.strip():
-            return []
-
-        inputs = self.tokenizer(
-            text, return_tensors="pt", truncation=True, max_length=512, return_offsets_mapping=True
-        )
-        input_ids = inputs["input_ids"].to(self.device)
-        attention_mask = inputs["attention_mask"].to(self.device)
-
-        with torch.no_grad():
-            outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
-            probabilities = F.softmax(outputs.logits, dim=-1)[0]
-            predictions = torch.argmax(probabilities, dim=-1)
-
-        predictions = predictions.cpu().numpy()
-        offsets = inputs["offset_mapping"][0].cpu().numpy()
-        
-        entities = []
-        current_entity = None
-        
-        for idx, (pred, offset) in enumerate(zip(predictions, offsets)):
-            if offset[0] == 0 and offset[1] == 0: continue
-            
-            pred_label = self.id2label[pred]
-            confidence = probabilities[idx][pred].item()
-            
-            if pred_label == 'O':
-                if current_entity:
-                    entities.append(current_entity)
-                    current_entity = None
-                continue
-                
-            if pred_label.startswith('B-'):
-                if current_entity: entities.append(current_entity)
-                current_entity = {
-                    'label': pred_label[2:],
-                    'start': offset[0],
-                    'end': offset[1],
-                    'confidences': [confidence]
-                }
-            elif pred_label.startswith('I-') and current_entity and current_entity['label'] == pred_label[2:]:
-                current_entity['end'] = offset[1]
-                current_entity['confidences'].append(confidence)
-        
-        if current_entity: entities.append(current_entity)
-        
-        final_results = []
-        for ent in entities:
-            avg_conf = sum(ent['confidences']) / len(ent['confidences'])
-            if avg_conf >= self.confidence_thresholds.get(ent['label'], 0.5):
-                final_results.append({
-                    'text': text[ent['start']:ent['end']],
-                    'label': ent['label'],
-                    'start': ent['start'],
-                    'end': ent['end'],
-                    'confidence': avg_conf
-                })
-        return final_results
+# ==================== 정규식/DL PII 탐지기 ====================
+# 중복 클래스 제거됨 - app.ml.pii_detectors에서 통합된 클래스 사용
+# - EnhancedRegexPIIDetector → GeneralizedRegexPIIDetector
+# - KoELECTRAPIIDetector → app.ml.pii_detectors.dl_detector.KoELECTRAPIIDetector
 
 
 # ==================== 통합 오디오 서비스 ====================
@@ -282,7 +75,9 @@ class AudioPIIService:
         
         self.whisper_model = None
         self.pii_detector = None
-        self.regex_detector = EnhancedRegexPIIDetector()
+        # 통합된 정규식 탐지기 사용
+        from app.ml.pii_detectors.regex_detector import GeneralizedRegexPIIDetector
+        self.regex_detector = GeneralizedRegexPIIDetector()
         
         self.initialized = True
         logger.info("AudioPIIService 초기화됨 (모델은 아직 로드되지 않음)")
@@ -300,6 +95,8 @@ class AudioPIIService:
             
         if self.pii_detector is None:
             logger.info("KoELECTRA 모델 로딩 시작...")
+            # 통합된 KoELECTRA 탐지기 사용
+            from app.ml.pii_detectors.dl_detector import KoELECTRAPIIDetector
             self.pii_detector = KoELECTRAPIIDetector(self.koelectra_model_path)
             logger.info("KoELECTRA 모델 로딩 완료")
 
@@ -452,19 +249,13 @@ class AudioPIIService:
                 
             final_audio = sum(masked_segments)
             
-            # 프로젝트 루트의 test_audio 폴더에 저장
+            # AUDIO_OUTPUT_DIR에 저장
             from pathlib import Path
             import datetime
             
-            # 프로젝트 루트 찾기 (app/services/file/audio_masking.py 기준 상위 4단계)
-            current_file = Path(__file__).resolve()
-            project_root = current_file.parent.parent.parent.parent  # app/services/file -> app/services -> app -> root
-            test_audio_dir = project_root / "test_audio"
-            test_audio_dir.mkdir(exist_ok=True)
-            
             # 타임스탬프 기반 파일명 생성
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_path = test_audio_dir / f"masked_audio_{timestamp}.mp3"
+            output_path = Path(AUDIO_OUTPUT_DIR) / f"masked_audio_{timestamp}.mp3"
             
             # 파일로 저장
             final_audio.export(str(output_path), format="mp3")

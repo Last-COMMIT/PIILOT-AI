@@ -3,9 +3,9 @@
 """
 from typing import List, Dict
 import numpy as np
-from ultralytics import YOLO
 from app.core.logging import logger
 from app.utils.image_utils import load_image
+from app.core.model_manager import ModelManager
 import os
 
 
@@ -13,8 +13,15 @@ class ImageDetector:
     """Vision 기반 얼굴 탐지"""
 
     def __init__(self, model_path: str = None):
+        try:
+            from ultralytics import YOLO  # lazy import
+        except ImportError:
+            raise ImportError("ultralytics 모듈이 설치되지 않았습니다. 'pip install ultralytics'를 실행하세요.")
+        
+        # 기본 모델 경로 설정 (중앙 관리)
         if model_path is None:
-            model_path = "models/vision/yolov12n-face.pt"
+            model_path = ModelManager.get_local_model_path("yolo_face")
+        # 사용자가 직접 경로를 전달한 경우 절대 경로로 가정
 
         self.model_path = model_path
 

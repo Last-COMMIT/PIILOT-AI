@@ -4,9 +4,10 @@ import re
 from pathlib import Path
 from typing import Dict, List
 from .extractors.text_extractor import TextExtractor
-from .detectors.hybrid_detector import HybridPIIDetector
+from app.ml.pii_detectors.hybrid_detector import HybridPIIDetector
 from .masker import Masker
 from app.config import PII_NAMES, OUTPUT_DIR
+from app.core.logging import logger
 
 class DocumentDetector():
     """하이브리드 PII 탐지 및 비식별화 통합 파이프라인"""
@@ -103,15 +104,15 @@ class DocumentDetector():
                 method_key = entity.get('method', 'koelectra')
                 method_stats[method_key] = method_stats.get(method_key, 0) + 1
 
-        print(f"총 {total_pii}개 PII 탐지")
+        logger.info(f"총 {total_pii}개 PII 탐지")
         for label, count in pii_stats.items():
-            print(f"    - {PII_NAMES.get(label, label)}: {count}개")
+            logger.info(f"    - {PII_NAMES.get(label, label)}: {count}개")
 
         if confidence_stats:
             avg_confidence = sum(confidence_stats) / len(confidence_stats)
-            print(f"평균 신뢰도: {avg_confidence:.3f}")
+            logger.info(f"평균 신뢰도: {avg_confidence:.3f}")
 
-        print(f"비식별화 처리 (방법: {method})")
+        logger.info(f"비식별화 처리 (방법: {method})")
         self.deidentifier.mask_pdf(input_path, text_blocks,
                                    entities_per_block, output_path)
 
@@ -151,13 +152,13 @@ class DocumentDetector():
                 pii_stats[label] = pii_stats.get(label, 0) + 1
                 confidence_stats.append(entity['confidence'])
 
-        print(f"총 {total_pii}개 PII 탐지")
+        logger.info(f"총 {total_pii}개 PII 탐지")
         for label, count in pii_stats.items():
-            print(f"    - {PII_NAMES.get(label, label)}: {count}개")
+            logger.info(f"    - {PII_NAMES.get(label, label)}: {count}개")
 
         if confidence_stats:
             avg_confidence = sum(confidence_stats) / len(confidence_stats)
-            print(f"평균 신뢰도: {avg_confidence:.3f}")
+            logger.info(f"평균 신뢰도: {avg_confidence:.3f}")
 
         self.deidentifier.mask_docx(input_path, paragraphs,
                                     entities_per_para, output_path)
@@ -197,15 +198,15 @@ class DocumentDetector():
                 pii_stats[label] = pii_stats.get(label, 0) + 1
                 confidence_stats.append(entity['confidence'])
 
-        print(f"총 {total_pii}개 PII 탐지")
+        logger.info(f"총 {total_pii}개 PII 탐지")
         for label, count in pii_stats.items():
-            print(f"    - {PII_NAMES.get(label, label)}: {count}개")
+            logger.info(f"    - {PII_NAMES.get(label, label)}: {count}개")
 
         if confidence_stats:
             avg_confidence = sum(confidence_stats) / len(confidence_stats)
-            print(f"평균 신뢰도: {avg_confidence:.3f}")
+            logger.info(f"평균 신뢰도: {avg_confidence:.3f}")
 
-        print(f"비식별화 처리 중...")
+        logger.info(f"비식별화 처리 중...")
         self.deidentifier.mask_txt(input_path, lines,
                                    entities_per_line, output_path)
 
