@@ -6,11 +6,9 @@ import json
 import re
 import time
 from typing import List, Dict, Optional
-import torch
-
-from langchain_huggingface import ChatHuggingFace
 
 from app.services.db.pii_vector_db import PIIVectorDB
+from app.services.chat.utils.llm_client import get_llm
 from app.core.logging import logger
 
 
@@ -76,31 +74,11 @@ JSON 배열만 출력하세요. 설명 없이 JSON만 반환하세요.
         self.vector_db = PIIVectorDB()
         logger.info("✓ PIIVectorDB 초기화 완료")
 
-        # LLM 초기화 (Midm-2.0-Mini-Instruct)
-        model_name = "K-intelligence/Midm-2.0-Mini-Instruct"
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # LLM 초기화 (공통 llm_client 사용 → KT 믿음 / GPT API 설정에 따라 자동 선택)
         llm_start_time = time.time()
-
-        try:
-            self.llm = ChatHuggingFace.from_model_id(
-                model_id=model_name,
-                task="text-generation",
-                device_map=device,
-                model_kwargs={
-                    "torch_dtype": torch.bfloat16,
-                    "trust_remote_code": True,
-                },
-                tokenizer_kwargs={
-                    "trust_remote_code": True,
-                },
-                temperature=0.001,
-                max_new_tokens=1024,
-            )
-            llm_load_time = time.time() - llm_start_time
-            logger.info(f"✓ LLM 모델 로딩 완료 (소요 시간: {llm_load_time:.2f}초)")
-        except Exception as e:
-            logger.error(f"LLM 모델 로딩 실패: {str(e)}", exc_info=True)
-            raise
+        self.llm = get_llm(temperature=0.001, max_new_tokens=1024)
+        llm_load_time = time.time() - llm_start_time
+        logger.info(f"✓ LLM 초기화 완료 (소요 시간: {llm_load_time:.2f}초)")
 
         total_init_time = time.time() - init_start_time
         logger.info(f"✓ PIIColumnClassifier 초기화 완료 (총 소요 시간: {total_init_time:.2f}초)")

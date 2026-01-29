@@ -1,12 +1,8 @@
 """
 LangGraph 챗봇 설정값
 """
-import os
-
-# LLM 설정 (환경 변수로 오버라이드 가능)
-# LLM_TYPE = os.getenv("LANGGRAPH_LLM_TYPE", "huggingface")  # "huggingface" 또는 "openai"
-LLM_TYPE = "openai"
-OPENAI_MODEL = os.getenv("LANGGRAPH_OPENAI_MODEL", "gpt-4o-mini")  # "gpt-4o-mini", "gpt-3.5-turbo" 등
+LLM_TYPE = "openai"  # "huggingface" 또는 "openai"
+OPENAI_MODEL = "gpt-4o-mini"  # "gpt-4o-mini", "gpt-3.5-turbo" 등
 
 # 임계값
 RELEVANCE_THRESHOLD = 0.6  # 관련성 최소 점수
