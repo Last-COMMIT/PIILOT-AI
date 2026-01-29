@@ -7,8 +7,11 @@ from app.schemas.db import (
     ColumnDetectionResponse,
     EncryptionCheckRequest,
     EncryptionCheckResponse,
+    PIIColumnDetectRequest,
+    PIIColumnDetectResponse,
+    PIIColumnResult,
 )
-from app.api.deps import get_column_detector, get_encryption_classifier
+from app.api.deps import get_column_detector, get_encryption_classifier, get_pii_column_classifier
 from app.core.logging import logger
 
 router = APIRouter()
@@ -60,3 +63,26 @@ async def check_encryption(
         })
 
     return EncryptionCheckResponse(results=results)
+
+
+@router.post("/detect-pii-columns", response_model=PIIColumnDetectResponse)
+async def detect_pii_columns(
+    request: PIIColumnDetectRequest,
+    classifier=Depends(get_pii_column_classifier),
+):
+    """PII 컬럼 유형 탐지 (RAG 기반)"""
+    logger.info(f"PII 컬럼 탐지 요청: {len(request.tables)}개 테이블")
+
+    # 요청 데이터를 Dict 형태로 변환
+    tables_dict = [
+        {"tableName": t.tableName, "columns": t.columns}
+        for t in request.tables
+    ]
+
+    # PII 분류 실행
+    pii_results = classifier.classify(tables=tables_dict)
+
+    # 응답 생성
+    pii_columns = [PIIColumnResult(**r) for r in pii_results]
+
+    return PIIColumnDetectResponse(piiColumns=pii_columns)
