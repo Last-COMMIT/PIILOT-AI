@@ -41,3 +41,18 @@ class RegulationSearchResponse(BaseModel):
     """법령 검색 응답"""
     answer: str
     sources: List[RegulationSearchResult]
+
+
+class LangGraphChatRequest(BaseModel):
+    """LangGraph 챗봇 질의 요청"""
+    question: str
+    conversation_id: str = "default"
+
+
+class LangGraphChatResponse(BaseModel):
+    """LangGraph 챗봇 응답"""
+    answer: str
+    sources: List[str] = []
+    query_type: str = "general"
+    relevance_score: Optional[float] = None
+    hallucination_score: Optional[float] = None
