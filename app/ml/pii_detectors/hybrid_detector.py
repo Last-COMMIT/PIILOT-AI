@@ -7,6 +7,7 @@ from app.ml.pii_detectors.dl_detector import KoELECTRAPIIDetector
 from app.ml.pii_detectors.regex_detector import GeneralizedRegexPIIDetector
 from app.core.constants import PII_NAMES
 from app.utils.overlap import is_overlapping
+from app.core.logging import logger
 
 
 class HybridPIIDetector:
@@ -201,9 +202,9 @@ class HybridPIIDetector:
         merged_entities = self._refine_entities(merged_entities)
 
         if regex_entities:
-            print(f"정규식 추가 탐지: {len(regex_entities)}개")
+            logger.debug(f"정규식 추가 탐지: {len(regex_entities)}개")
             for entity in regex_entities:
-                print(f"    + {PII_NAMES.get(entity['label'], entity['label'])}: '{entity['text']}'")
+                logger.debug(f"    + {PII_NAMES.get(entity['label'], entity['label'])}: '{entity['text']}'")
 
         return merged_entities
 

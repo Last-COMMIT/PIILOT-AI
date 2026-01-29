@@ -6,6 +6,7 @@ import os
 import tempfile
 from typing import List, Dict
 from app.core.logging import logger
+from app.core.config import AUDIO_OUTPUT_DIR
 from app.utils.overlap import is_overlapping
 from app.ml.whisper_stt import WhisperSTT
 from app.ml.pii_detectors.regex_detector import GeneralizedRegexPIIDetector
@@ -95,75 +96,92 @@ class AudioMasker:
 
         temp_path = None
         is_temp = False
-        if isinstance(audio_input, bytes):
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                tmp.write(audio_input)
-                temp_path = tmp.name
-                is_temp = True
-            audio_path = temp_path
-        else:
-            audio_path = audio_input
-
         try:
-            audio = AudioSegment.from_file(audio_path)
-            audio_length_ms = len(audio)
-            masked_segments = []
-            current_time = 0
+            if isinstance(audio_input, bytes):
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                    tmp.write(audio_input)
+                    temp_path = tmp.name
+                    is_temp = True
+                audio_path = temp_path
+            else:
+                audio_path = audio_input
 
-            detected_items.sort(key=lambda x: x.get('start_time', 0))
-            MASK_VOLUME = -25
-            SAFE_BUFFER_MS = 25
+            try:
+                audio = AudioSegment.from_file(audio_path)
+                audio_length_ms = len(audio)
+                masked_segments = []
+                current_time = 0
 
-            for item in detected_items:
-                original_start_ms = int(item.get('start_time', 0) * 1000)
-                original_end_ms = int(item.get('end_time', 0) * 1000)
-                pii_text = item.get('value', '')
+                detected_items.sort(key=lambda x: x.get('start_time', 0))
+                MASK_VOLUME = -25
+                SAFE_BUFFER_MS = 25
 
-                if original_start_ms >= original_end_ms:
-                    continue
+                for item in detected_items:
+                    try:
+                        original_start_ms = int(item.get('start_time', 0) * 1000)
+                        original_end_ms = int(item.get('end_time', 0) * 1000)
+                        pii_text = item.get('value', '')
 
-                start_ms = max(0, original_start_ms - SAFE_BUFFER_MS)
-                end_ms = min(original_end_ms + SAFE_BUFFER_MS, audio_length_ms)
-                if end_ms - start_ms < 50:
-                    start_ms = original_start_ms
-                    end_ms = original_end_ms
-                start_ms = max(0, min(start_ms, audio_length_ms))
-                end_ms = max(start_ms + 50, min(end_ms, audio_length_ms))
+                        if original_start_ms >= original_end_ms:
+                            continue
 
-                if start_ms >= end_ms:
-                    continue
+                        start_ms = max(0, original_start_ms - SAFE_BUFFER_MS)
+                        end_ms = min(original_end_ms + SAFE_BUFFER_MS, audio_length_ms)
+                        if end_ms - start_ms < 50:
+                            start_ms = original_start_ms
+                            end_ms = original_end_ms
+                        start_ms = max(0, min(start_ms, audio_length_ms))
+                        end_ms = max(start_ms + 50, min(end_ms, audio_length_ms))
 
-                if current_time < start_ms:
-                    masked_segments.append(audio[current_time:start_ms])
+                        if start_ms >= end_ms:
+                            continue
 
-                duration = end_ms - start_ms
-                tone = Sine(1000).to_audio_segment(duration=duration, volume=MASK_VOLUME)
-                masked_segments.append(tone)
-                current_time = end_ms
+                        if current_time < start_ms:
+                            masked_segments.append(audio[current_time:start_ms])
 
-            if current_time < len(audio):
-                masked_segments.append(audio[current_time:])
+                        duration = end_ms - start_ms
+                        tone = Sine(1000).to_audio_segment(duration=duration, volume=MASK_VOLUME)
+                        masked_segments.append(tone)
+                        current_time = end_ms
+                    except Exception as item_error:
+                        logger.warning(f"오디오 마스킹 항목 처리 중 오류 발생 (다음 항목 계속 처리): {item_error}")
+                        continue
 
-            final_audio = sum(masked_segments)
+                if current_time < len(audio):
+                    masked_segments.append(audio[current_time:])
 
-            from pathlib import Path
-            import datetime
-            project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
-            test_audio_dir = project_root / "test_audio"
-            test_audio_dir.mkdir(exist_ok=True)
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_path = test_audio_dir / f"masked_audio_{timestamp}.mp3"
+                final_audio = sum(masked_segments)
 
-            final_audio.export(str(output_path), format="mp3")
-            logger.info(f"마스킹된 오디오가 저장되었습니다: {output_path}")
+                from pathlib import Path
+                import datetime
+                timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                output_path = Path(AUDIO_OUTPUT_DIR) / f"masked_audio_{timestamp}.mp3"
 
-            with open(output_path, "rb") as f:
-                masked_bytes = f.read()
-            return masked_bytes
+                final_audio.export(str(output_path), format="mp3")
+                logger.info(f"마스킹된 오디오가 저장되었습니다: {output_path}")
 
+                with open(output_path, "rb") as f:
+                    masked_bytes = f.read()
+                return masked_bytes
+            except Exception as e:
+                logger.error(f"오디오 마스킹 중 오류 발생: {str(e)}", exc_info=True)
+                # 원본 오디오를 반환 시도
+                try:
+                    audio = AudioSegment.from_file(audio_path)
+                    output_path = Path(AUDIO_OUTPUT_DIR) / f"original_audio_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mp3"
+                    audio.export(str(output_path), format="mp3")
+                    logger.warning("마스킹 실패로 원본 오디오 반환")
+                    with open(output_path, "rb") as f:
+                        return f.read()
+                except:
+                    logger.error("원본 오디오 로드도 실패하여 빈 bytes 반환")
+                    return b""
         finally:
             if is_temp and temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
 
     def _match_timestamps(self, full_text, words, pii_entities):
         """텍스트 위치를 오디오 타임스탬프로 변환"""

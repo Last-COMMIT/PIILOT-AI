@@ -8,6 +8,7 @@ from transformers import AutoTokenizer, AutoModelForTokenClassification
 from typing import List, Dict, Optional
 from app.core.constants import CONFIDENCE_THRESHOLDS, PII_NAMES
 from app.core.logging import logger
+from app.core.model_manager import ModelManager
 
 
 class KoELECTRAPIIDetector:
@@ -19,8 +20,13 @@ class KoELECTRAPIIDetector:
         self.model = None
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-            self.model = AutoModelForTokenClassification.from_pretrained(model_path)
+            cache_dir = ModelManager.get_cache_dir()
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_path, cache_dir=cache_dir
+            )
+            self.model = AutoModelForTokenClassification.from_pretrained(
+                model_path, cache_dir=cache_dir
+            )
             self.model.to(self.device)
             self.model.eval()
             self.id2label = self.model.config.id2label

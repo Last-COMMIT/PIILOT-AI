@@ -23,18 +23,25 @@ class VideoDetector:
         self.audio_detector = AudioDetector()
         logger.info("VideoDetector 초기화")
 
-    def detect(self, video_path: str) -> Dict:
-        """영상에서 개인정보 탐지"""
-        logger.info(f"영상 탐지 시작: {video_path[:50]}...")
+    def detect(self, video_data: str, video_format: str = "base64") -> Dict:
+        """
+        영상에서 개인정보 탐지
+        
+        Args:
+            video_data: 영상 파일 경로 또는 base64 인코딩된 비디오
+            video_format: "base64" 또는 "path" (기본값: "base64")
+        """
+        logger.info(f"영상 탐지 시작 (포맷: {video_format}): {video_data[:50] if len(video_data) > 50 else video_data}...")
 
         with TempFileManager() as temp:
-            if is_base64(video_path):
-                input_video_path = decode_base64_to_temp_file(video_path, suffix='.mp4')
+            # video_format에 따라 처리
+            if video_format == "base64":
+                input_video_path = decode_base64_to_temp_file(video_data, suffix='.mp4')
                 temp.add(input_video_path)
-            else:
-                if not os.path.exists(video_path):
-                    raise FileNotFoundError(f"비디오 파일을 찾을 수 없습니다: {video_path}")
-                input_video_path = video_path
+            else:  # "path"
+                if not os.path.exists(video_data):
+                    raise FileNotFoundError(f"비디오 파일을 찾을 수 없습니다: {video_data}")
+                input_video_path = video_data
 
             # 얼굴 감지기 초기화
             face_detector = YOLOFaceDetector(
@@ -84,7 +91,7 @@ class VideoDetector:
                 try:
                     subprocess.run(extract_cmd, check=True, capture_output=True)
                     logger.info("비디오에서 오디오 추출 완료 (탐지용)")
-                    audio_detections = self.audio_detector.detect(temp_audio_path)
+                    audio_detections = self.audio_detector.detect(temp_audio_path, "path")
                     if isinstance(audio_detections, dict):
                         personal_info_in_audio = audio_detections.get("personal_info", [])
                     elif isinstance(audio_detections, list):
@@ -101,4 +108,12 @@ class VideoDetector:
             return {
                 "faces": detected_faces,
                 "personal_info_in_audio": personal_info_in_audio,
+            }
+        except Exception as e:
+            logger.error(f"영상 탐지 중 오류 발생: {str(e)}", exc_info=True)
+            # 예외를 다시 raise하지 않고 빈 결과 반환 (서비스 계속 유지)
+            logger.warning("영상 탐지 실패로 빈 결과 반환")
+            return {
+                "faces": [],
+                "personal_info_in_audio": [],
             }

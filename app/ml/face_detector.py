@@ -1,17 +1,28 @@
 """
 YOLO 얼굴 탐지 모델
 """
-from ultralytics import YOLO
 import cv2
 import numpy as np
+import os
+from app.core.model_manager import ModelManager
 
 
 class YOLOFaceDetector:
-    def __init__(self, model_path="models/vision/yolov12n-face.pt",
+    def __init__(self, model_path=None,
                  conf_threshold=0.25,
                  iou_threshold=0.45,
                  imgsz=640,
                  enhance_image=True):
+        try:
+            from ultralytics import YOLO  # lazy import
+        except ImportError:
+            raise ImportError("ultralytics 모듈이 설치되지 않았습니다. 'pip install ultralytics'를 실행하세요.")
+        
+        # 기본 모델 경로 설정 (중앙 관리)
+        if model_path is None:
+            model_path = ModelManager.get_local_model_path("yolo_face")
+        # 사용자가 직접 경로를 전달한 경우 절대 경로로 가정
+        
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold

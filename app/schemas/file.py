@@ -35,6 +35,7 @@ class MaskingRequest(BaseModel):
     """마스킹 처리 요청"""
     file_type: str
     file_data: str
+    file_format: Optional[str] = "base64"  # "base64" 또는 "path"
     detected_items: Optional[List[Dict]] = []
 
 

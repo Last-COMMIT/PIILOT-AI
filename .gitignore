@@ -51,5 +51,9 @@ logs/
 *.sqlite3
 data/chroma_db/
 
-# Models (if large)
-# models/
+# Models
+# HuggingFace 모델은 크기가 크므로 제외
+models/huggingface/
+# 로컬 모델 파일들은 포함 (작은 크기)
+# models/vision/*.pt
+# models/encryption_classifier/*.pkl

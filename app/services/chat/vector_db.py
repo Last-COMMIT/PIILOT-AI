@@ -10,6 +10,7 @@ from transformers import AutoTokenizer, AutoModel
 from torch import Tensor
 import torch
 import torch.nn.functional as F
+from app.core.model_manager import ModelManager
 
 class VectorDB:
     """법령 데이터 Vector DB 관리 (읽기 전용) - PostgreSQL + pgvector"""
@@ -61,12 +62,17 @@ class VectorDB:
             model_name = 'intfloat/multilingual-e5-large-instruct'
             
             try:
+                cache_dir = ModelManager.get_cache_dir()
                 logger.debug("Tokenizer 로딩 중...")
-                VectorDB._tokenizer = AutoTokenizer.from_pretrained(model_name)
+                VectorDB._tokenizer = AutoTokenizer.from_pretrained(
+                    model_name, cache_dir=cache_dir
+                )
                 logger.debug("✓ Tokenizer 로딩 완료")
                 
                 logger.debug("Model 로딩 중... (시간이 오래 걸릴 수 있습니다)")
-                VectorDB._model = AutoModel.from_pretrained(model_name)
+                VectorDB._model = AutoModel.from_pretrained(
+                    model_name, cache_dir=cache_dir
+                )
                 VectorDB._model.eval()
                 logger.debug("✓ Model 로딩 완료")
                 

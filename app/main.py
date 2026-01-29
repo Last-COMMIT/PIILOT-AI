@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.core.exceptions import global_exception_handler
+from app.core.exceptions import global_exception_handler, validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from app.core.model_manager import ModelManager
 from app.api import db, file, chat
 
 app = FastAPI(
@@ -27,6 +29,7 @@ app.add_middleware(
 
 # 글로벌 예외 핸들러 등록
 app.add_exception_handler(Exception, global_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 # API 라우터 등록
 app.include_router(
@@ -66,6 +69,13 @@ async def health_check():
 async def startup_event():
     """애플리케이션 시작 시 실행"""
     logger.info("PIILOT 서비스 시작")
+    
+    # 모든 모델 다운로드 확인 및 다운로드
+    try:
+        ModelManager.ensure_all_models()
+    except Exception as e:
+        logger.error(f"모델 준비 중 오류 발생: {e}", exc_info=True)
+        # 서비스는 계속 실행 (모델이 없으면 해당 기능만 비활성화)
 
 
 @app.on_event("shutdown")
