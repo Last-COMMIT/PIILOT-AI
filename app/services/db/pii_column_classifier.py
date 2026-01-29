@@ -17,51 +17,53 @@ from app.core.logging import logger
 class PIIColumnClassifier:
     """PII 컬럼 분류기 - RAG 기반"""
 
-    PROMPT_TEMPLATE = """당신은 데이터베이스 컬럼의 개인정보(PII) 유형을 분류하는 전문가입니다.
+    # 허용된 PII 유형 목록
+    ALLOWED_PII_TYPES = {"NM", "RRN", "ADD", "IP", "PH", "ACN", "PP", "EM"}
 
-## 주요 개인정보 유형
+    PROMPT_TEMPLATE = """당신은 데이터베이스 컬럼명을 보고 개인정보(PII) 여부를 판단하는 전문가입니다.
+
+## 허용된 개인정보 유형 (이 목록에 있는 것만 사용)
 - NM: 이름
 - RRN: 주민등록번호
-- ADD: 집 주소
+- ADD: 주소
 - IP: IP주소
 - PH: 전화번호
 - ACN: 계좌번호
 - PP: 여권번호
 - EM: 이메일
 
-## PII 표준단어 사전
+## 기업 컬럼 작명 규칙 (참고용)
 {context}
 
 ## 분류 규칙
-1. 컬럼명이 표준단어의 약어, 한글명, 영문명과 의미적으로 일치하면 해당 약어(abbr)를 piiType으로 반환
-2. 개인정보가 아닌 컬럼(id, seq, created_at, updated_at, amount, count, flag 등)은 결과에서 제외
-3. 확실하지 않으면 제외
+1. 입력된 컬럼명을 기업 작명 규칙과 비교하여 개인정보 여부 판단
+2. piiType은 반드시 위 허용된 목록(NM, RRN, ADD, IP, PH, ACN, PP, EM) 중에서만 선택
+3. columnName은 입력값을 그대로 반환 (절대 변경하지 말 것)
+4. 개인정보가 아닌 컬럼(id, seq, created_at, amount 등)은 결과에서 제외
+5. 컬럼명이 개인정보인지 확실하지 않으면 제외
 
 ## 예시
 
-입력 컬럼:
-- users.user_id
+입력:
 - users.user_nm
-- users.user_brdt
-- users.email_addr
+- users.email   
+- users.phone
 - users.reg_dt
-- orders.order_amt
 
 출력:
 ```json
 [
   {{"tableName": "users", "columnName": "user_nm", "piiType": "NM"}},
-  {{"tableName": "users", "columnName": "user_brdt", "piiType": "BRDT"}},
-  {{"tableName": "users", "columnName": "email_addr", "piiType": "EM"}}
+  {{"tableName": "users", "columnName": "email", "piiType": "EM"}},
+  {{"tableName": "users", "columnName": "phone", "piiType": "PH"}}
 ]
 ```
-(user_id는 식별자, reg_dt는 등록일시, order_amt는 금액이므로 개인정보 아님)
 
 ## 분류할 컬럼
 {columns}
 
 ## 출력
-개인정보 컬럼만 JSON 배열로 반환하세요. 다른 설명 없이 JSON만 출력하세요.
+JSON 배열만 출력하세요. 설명 없이 JSON만 반환하세요.
 ```json
 """
 

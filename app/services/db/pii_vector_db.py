@@ -42,6 +42,9 @@ class PIIVectorDB:
         if PIIVectorDB._tokenizer is None or PIIVectorDB._model is None:
             model_name = 'intfloat/multilingual-e5-large-instruct'
             cache_dir = ModelManager.get_cache_dir()
+            if cache_dir is None:
+                ModelManager.setup_cache_dir()
+                cache_dir = ModelManager.get_cache_dir()
 
             PIIVectorDB._tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
             PIIVectorDB._model = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
