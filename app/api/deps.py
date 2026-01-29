@@ -68,3 +68,10 @@ def get_regulation_search():
     from app.services.chat.regulation_service import RegulationSearch
     logger.info("RegulationSearch 의존성 생성")
     return RegulationSearch()
+
+
+@lru_cache
+def get_pii_column_classifier():
+    from app.services.db.pii_column_classifier import PIIColumnClassifier
+    logger.info("PIIColumnClassifier 의존성 생성")
+    return PIIColumnClassifier()
