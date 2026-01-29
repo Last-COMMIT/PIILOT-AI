@@ -1,4 +1,5 @@
 import re
+import sys
 from pathlib import Path
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_core.documents import Document
@@ -7,12 +8,29 @@ from torch import Tensor
 import torch
 from transformers import AutoTokenizer, AutoModel
 import torch.nn.functional as F
+
+# 프로젝트 루트를 sys.path에 추가 (스크립트 직접 실행 시 모듈 import를 위해)
+# config.py의 get_project_root()와 동일한 로직 사용
+def _find_project_root() -> Path:
+    """프로젝트 루트 경로 반환 (requirements.txt 기준) - config.py와 동일한 로직"""
+    current = Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / 'requirements.txt').exists():
+            return current
+        current = current.parent
+    raise RuntimeError("프로젝트 루트(requirements.txt)를 찾을 수 없습니다.")
+
+_project_root = _find_project_root()
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from app.core.logging import logger
 
-# 테스트용 connection
-from app.utils.test_db_connection import get_psycopg_connection
+# DB 연결 (기존 방식 사용)
+from app.crud.db_connect import get_connection
+from urllib.parse import urlparse
 # 프로젝트 루트 경로 (config에서 가져오기)
-from app.core.config import get_project_root
+from app.core.config import get_project_root, settings
 BASE_DIR = get_project_root()
 PDF_PATH = BASE_DIR / "input_file" / "documents" / "LASTCOMMIT_데이터베이스_표준단어사전.pdf"
 
@@ -284,7 +302,15 @@ def insert_to_database(documents: List[Document], embeddings: Tensor, batch_size
         embeddings: 임베딩 텐서 [num_docs, embedding_dim]
         batch_size: 배치 크기
     """
-    conn = get_psycopg_connection()
+    # config.py의 DATABASE_URL 파싱하여 연결
+    parsed_url = urlparse(settings.DATABASE_URL.replace('postgresql+psycopg://', 'postgresql://'))
+    conn = get_connection(
+        user=parsed_url.username,
+        password=parsed_url.password,
+        host=parsed_url.hostname,
+        port=parsed_url.port or 5432,
+        database=parsed_url.path.lstrip('/')
+    )
     
     insert_query = """
         INSERT INTO pii_standard_words (
@@ -344,10 +370,15 @@ def main():
     documents = create_documents(metadata_list)
     logger.info(f"{len(documents)}개 Document 생성 완료")
 
-    # 4. 임베딩 모델 로드
-    model_name = "intfloat/multilingual-e5-large-instruct"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name)
+    # 4. 임베딩 모델 로드 (ModelManager의 캐시 디렉토리 사용)
+    from app.core.model_manager import ModelManager
+    ModelManager.setup_cache_dir()  # 캐시 디렉토리 설정
+    cache_dir = ModelManager.get_cache_dir()
+    
+    model_name = ModelManager.HUGGINGFACE_MODELS["embedding"]["name"]
+    logger.info(f"임베딩 모델 로드 시작: {model_name} (캐시 디렉토리: {cache_dir})")
+    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+    model = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
     model.eval()
     logger.info("임베딩 모델 로드 완료")
 

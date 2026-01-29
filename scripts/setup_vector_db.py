@@ -14,8 +14,10 @@ from torch import Tensor
 from scripts.embeddings import load_chunks_from_json
 from scripts.embeddings import generate_embeddings_batch
 from app.utils.logger import logger
-# 테스트용 connection
-from app.utils.test_db_connection import get_psycopg_connection
+# DB 연결 (기존 방식 사용)
+from app.crud.db_connect import get_connection
+from urllib.parse import urlparse
+from app.core.config import settings
 
 # # 프로젝트 루트를 sys.path에 추가
 current_dir = Path(__file__).parent
@@ -32,8 +34,15 @@ project_root = current_dir.parent
 
 def insert_to_database(chunks: List[Dict[str, Any]], embeddings: Tensor, batch_size: int = 100):
     """데이터베이스에 청크와 임베딩 삽입"""
-    # conn = get_connection()
-    conn = get_psycopg_connection()
+    # config.py의 DATABASE_URL 파싱하여 연결
+    parsed_url = urlparse(settings.DATABASE_URL.replace('postgresql+psycopg://', 'postgresql://'))
+    conn = get_connection(
+        user=parsed_url.username,
+        password=parsed_url.password,
+        host=parsed_url.hostname,
+        port=parsed_url.port or 5432,
+        database=parsed_url.path.lstrip('/')
+    )
     insert_query = """
         INSERT INTO test2_law_data (
             chunk_text, embedding,
