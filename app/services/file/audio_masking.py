@@ -26,6 +26,7 @@ except ImportError:
 
 from app.utils.logger import logger
 from app.core.config import AUDIO_OUTPUT_DIR
+from app.core.model_manager import ModelManager
 
 # ==================== 설정 ====================
 PII_NAMES = {
@@ -86,10 +87,13 @@ class AudioPIIService:
         """무거운 모델 지연 로딩"""
         if self.whisper_model is None:
             logger.info("Whisper 모델 로딩 시작...")
+            ModelManager.setup_cache_dir()
+            download_root = ModelManager.get_whisper_cache_dir()
             device = "cuda" if torch.cuda.is_available() else "cpu"
             compute_type = "float16" if device == "cuda" else "int8"
             self.whisper_model = WhisperModel(
-                self.whisper_model_size, device=device, compute_type=compute_type
+                self.whisper_model_size, device=device, compute_type=compute_type,
+                download_root=download_root,
             )
             logger.info("Whisper 모델 로딩 완료")
             

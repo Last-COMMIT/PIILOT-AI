@@ -2,7 +2,7 @@
 DB AI 요청/응답 스키마
 """
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 
 
 # ========== 요청 ==========
@@ -12,9 +12,18 @@ class ColumnDetectionRequest(BaseModel):
     schema_info: Dict
 
 
+class PiiColumnItem(BaseModel):
+    """암호화 확인 대상 컬럼 (tableName, columnName, piiType, keyColumn)"""
+    tableName: str
+    columnName: str
+    piiType: str  # 표준약어 NM, EM, PH, ADD 등
+    keyColumn: Optional[str] = None  # PK 컬럼명. None이면 DB 메타데이터에서 자동 조회
+
+
 class EncryptionCheckRequest(BaseModel):
     """암호화 여부 확인 요청"""
-    data_samples: List[Dict]
+    connectionId: int
+    piiColumns: List[PiiColumnItem]
 
 class TableColumns(BaseModel):
     """테이블과 컬럼 정보"""
@@ -53,10 +62,13 @@ class PIIColumnDetectResponse(BaseModel):
 
 
 class EncryptionCheckResult(BaseModel):
-    """암호화 여부 확인 결과"""
-    column: str
-    total_records: int
-    encrypted_records: int
+    """암호화 여부 확인 결과 (camelCase)"""
+    tableName: str
+    columnName: str
+    piiType: str
+    totalRecordsCount: int
+    encRecordsCount: int
+    unencRecordsKeys: List[Any]  # 미암호화(PII 감지) 행의 PK 값 목록
 
 
 class EncryptionCheckResponse(BaseModel):

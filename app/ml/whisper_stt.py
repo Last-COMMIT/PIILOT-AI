@@ -3,6 +3,7 @@ Whisper STT 모델 래퍼 (audio_masking.py에서 분리)
 """
 import torch
 from app.core.logging import logger
+from app.core.model_manager import ModelManager
 
 
 class WhisperSTT:
@@ -32,10 +33,13 @@ class WhisperSTT:
         from faster_whisper import WhisperModel
 
         logger.info("Whisper 모델 로딩 시작...")
+        ModelManager.setup_cache_dir()
+        download_root = ModelManager.get_whisper_cache_dir()
         device = "cuda" if torch.cuda.is_available() else "cpu"
         compute_type = "float16" if device == "cuda" else "int8"
         self.model = WhisperModel(
-            self.model_size, device=device, compute_type=compute_type
+            self.model_size, device=device, compute_type=compute_type,
+            download_root=download_root,
         )
         logger.info("Whisper 모델 로딩 완료")
 
