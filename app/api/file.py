@@ -99,11 +99,19 @@ async def detect_video_personal_info(
 
         faces = result.get("faces", [])
         personal_info_in_audio = result.get("personal_info_in_audio", [])
-        has_pii = len(faces) > 0 or len(personal_info_in_audio) > 0
+        text_pii_regions = result.get("text_pii_regions", [])
+        has_pii = (
+            len(faces) > 0
+            or len(personal_info_in_audio) > 0
+            or len(text_pii_regions) > 0
+        )
 
         if has_pii:
             status = "detected"
-            message = f"개인정보가 탐지되었습니다. (얼굴: {len(faces)}개, 오디오: {len(personal_info_in_audio)}개)"
+            message = (
+                f"개인정보가 탐지되었습니다. "
+                f"(얼굴: {len(faces)}개, 오디오: {len(personal_info_in_audio)}개, 화면 텍스트 PII: {len(text_pii_regions)}개)"
+            )
         else:
             status = "no_pii"
             message = "개인정보가 탐지되지 않았습니다."
@@ -228,14 +236,22 @@ async def apply_masking(
                     detection_result = video_detector.detect(request.file_data, request.file_format)
                     faces = detection_result.get("faces", [])
                     audio_items = detection_result.get("personal_info_in_audio", [])
-                    logger.info(f"자동 탐지 완료: 얼굴 {len(faces)}개, 오디오 항목 {len(audio_items)}개 발견")
+                    text_pii_regions = detection_result.get("text_pii_regions", [])
+                    logger.info(
+                        f"자동 탐지 완료: 얼굴 {len(faces)}개, 오디오 {len(audio_items)}개, 화면 텍스트 PII {len(text_pii_regions)}개"
+                    )
                 else:
                     faces = [item for item in request.detected_items if "x" in item]
                     audio_items = [item for item in request.detected_items if "start_time" in item]
-                    logger.info(f"제공된 detected_items 사용: 얼굴 {len(faces)}개, 오디오 항목 {len(audio_items)}개")
+                    text_pii_regions = [item for item in request.detected_items if "frame_number" in item and "width" in item]
+                    logger.info(
+                        f"제공된 detected_items 사용: 얼굴 {len(faces)}개, 오디오 {len(audio_items)}개, 화면 텍스트 PII {len(text_pii_regions)}개"
+                    )
 
-                # mask_video는 이미 base64와 경로를 자동 감지하므로 file_data를 그대로 전달
-                masked_bytes = masker.mask_video(request.file_data, faces, audio_items)
+                # mask_video에 화면 텍스트 PII 영역 전달
+                masked_bytes = masker.mask_video(
+                    request.file_data, faces, audio_items, text_pii_regions=text_pii_regions
+                )
                 if masked_bytes:
                     masked_data = base64.b64encode(masked_bytes).decode()
                 else:

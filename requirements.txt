@@ -25,11 +25,11 @@ psycopg[binary]>=3.2.0
 pgvector>=0.3.6
 python-docx
 
-# Computer Vision
+# Computer Vision (얼굴: ultralytics, 영상 화면 텍스트 PII: easyocr)
 opencv-python>=4.10.0,<4.11
 pillow>=11.0.0
 ultralytics
-easyocr
+easyocr>=1.7.0
 
 # Audio Processing
 faster-whisper

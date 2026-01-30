@@ -1,12 +1,12 @@
 """
-영상 마스킹 처리 (얼굴 블러 + 오디오 마스킹)
+영상 마스킹 처리 (얼굴 블러 + 화면 텍스트 PII 블러 + 오디오 마스킹)
 (기존 masker.py에서 분리)
 """
 import os
 import subprocess
 import shutil
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 from app.core.logging import logger
 from app.core.config import VIDEO_OUTPUT_DIR, get_project_root
 from app.utils.base64_utils import is_base64, decode_base64_to_temp_file
@@ -14,18 +14,54 @@ from app.utils.temp_file import TempFileManager
 from app.ml.face_detector import YOLOFaceDetector
 from app.services.file.processors.blur_censor import BlurCensor
 from app.services.file.processors.video_processor import VideoProcessorEnhanced
+from app.core.config import settings
+
+
+def _text_pii_regions_to_by_frame(text_pii_regions: List[Dict[str, Any]]) -> Dict[int, List]:
+    """
+    text_pii_regions -> {frame_number: [(x1,y1,x2,y2), ...]}
+    키프레임에서 탐지된 영역을 전후 EXTEND_HALF 프레임까지 확장 적용해
+    구간이 겹치고 끊김 없이 마스킹되도록 함.
+    """
+    extend_half = max(1, getattr(settings, "VIDEO_TEXT_PII_EXTEND_HALF", 25))
+    by_frame: Dict[int, List] = {}
+    for r in text_pii_regions or []:
+        fn = r.get("frame_number")
+        if fn is None:
+            continue
+        x = int(r.get("x", 0))
+        y = int(r.get("y", 0))
+        w = int(r.get("width", 0))
+        h = int(r.get("height", 0))
+        if w <= 0 or h <= 0:
+            continue
+        bbox = (x, y, x + w, y + h)
+        # 키프레임 fn 기준 전후 extend_half 프레임까지 적용 (겹침으로 끊김 방지)
+        for f in range(max(1, fn - extend_half), fn + extend_half + 1):
+            by_frame.setdefault(f, []).append(bbox)
+    return by_frame
 
 
 class VideoMasker:
-    """영상 마스킹 처리"""
+    """영상 마스킹 처리 (얼굴 + 화면 텍스트 PII + 오디오)"""
 
-    def mask_video(self, video_path: str, faces: list, audio_items: list,
-                   save_path: str = None) -> bytes:
+    def mask_video(
+        self,
+        video_path: str,
+        faces: list,
+        audio_items: list,
+        save_path: str = None,
+        text_pii_regions: list = None,
+    ) -> bytes:
         """
-        영상 마스킹 (얼굴 모자이크 + 오디오 마스킹)
+        영상 마스킹 (얼굴 모자이크 + 화면 텍스트 PII 블러 + 오디오 마스킹)
+        text_pii_regions: [{frame_number, x, y, width, height, label?}, ...]
         """
+        text_pii_regions = text_pii_regions or []
         try:
-            logger.info(f"영상 마스킹 시작: {len(faces)}개 얼굴 정보, {len(audio_items)}개 오디오 항목")
+            logger.info(
+                f"영상 마스킹 시작: {len(faces)}개 얼굴, {len(audio_items)}개 오디오, {len(text_pii_regions)}개 화면 텍스트 PII"
+            )
 
             with TempFileManager() as temp:
                 # 비디오 파일 경로 처리
@@ -56,10 +92,16 @@ class VideoMasker:
                     max_track_frames=10, iou_threshold=0.3, use_kalman=True
                 )
 
-                # 비디오 처리 (얼굴 블러)
+                # 비디오 처리 (얼굴 블러 + 화면 텍스트 PII 블러)
+                text_pii_by_frame = _text_pii_regions_to_by_frame(text_pii_regions)
                 try:
-                    logger.info("비디오 얼굴 마스킹 처리 중...")
-                    processor.process_video(input_video_path, save_path, conf_thresh=0.25)
+                    logger.info("비디오 얼굴·화면 텍스트 PII 마스킹 처리 중...")
+                    processor.process_video(
+                        input_video_path,
+                        save_path,
+                        conf_thresh=0.25,
+                        text_pii_regions_by_frame=text_pii_by_frame,
+                    )
                 except Exception as e:
                     logger.error(f"비디오 얼굴 마스킹 중 오류 발생: {str(e)}", exc_info=True)
                     # 원본 비디오를 복사하여 반환 시도
