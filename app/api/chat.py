@@ -10,8 +10,10 @@ from app.schemas.chat import (
     RegulationSearchResult,
     LangGraphChatRequest,
     LangGraphChatResponse,
+    RegulationUploadResponse,
+    RegulationUploadRequest,
 )
-from app.api.deps import get_assistant, get_regulation_search, get_langgraph_chatbot
+from app.api.deps import get_assistant, get_regulation_search, get_langgraph_chatbot, get_regulation_upload
 from app.core.logging import logger
 import time
 
@@ -140,4 +142,25 @@ async def langgraph_chat(
             query_type="general",
             relevance_score=None,
             hallucination_score=None,
+        )
+
+
+@router.post("/upload-regulations", response_model=RegulationUploadResponse)
+async def upload_pdf(request: RegulationUploadRequest):
+    """PDF 파일을 벡터 DB에 저장"""
+    logger.info(f"PDF 처리 요청: {request.file_path}")
+    
+    try:
+        processor = get_regulation_upload()
+        await processor(request.file_path)
+        
+        logger.info(f"PDF 처리 완료: {request.file_path}")
+        return RegulationUploadResponse(
+            status="PDF 파일이 성공적으로 벡터 DB에 저장되었습니다."
+        )
+    
+    except Exception as e:
+        logger.error(f"PDF 처리 중 오류 발생: {str(e)}", exc_info=True)
+        return RegulationUploadResponse(
+            status=f"PDF 처리 중 오류가 발생했습니다: {str(e)}"
         )
