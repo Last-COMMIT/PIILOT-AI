@@ -13,6 +13,7 @@ class ModelManager:
     """모델 다운로드 및 관리"""
     
     CACHE_DIR: str = None  # setup_cache_dir()에서 초기화됨
+    WHISPER_CACHE_DIR: str = None  # setup_cache_dir()에서 초기화됨
     
     # 사용하는 모든 HuggingFace 모델 목록
     HUGGINGFACE_MODELS = {
@@ -43,15 +44,20 @@ class ModelManager:
     @classmethod
     def setup_cache_dir(cls):
         """캐시 디렉토리 설정 및 환경 변수 설정"""
+        project_root = get_project_root()
         if cls.CACHE_DIR is None:
-            project_root = get_project_root()
             cache_dir = project_root / "models" / "huggingface"
             cls.CACHE_DIR = str(cache_dir)
+        if cls.WHISPER_CACHE_DIR is None:
+            whisper_dir = project_root / "models" / "whisper"
+            cls.WHISPER_CACHE_DIR = str(whisper_dir)
         
         os.makedirs(cls.CACHE_DIR, exist_ok=True)
+        os.makedirs(cls.WHISPER_CACHE_DIR, exist_ok=True)
         os.environ['HF_HOME'] = cls.CACHE_DIR
         os.environ['TRANSFORMERS_CACHE'] = cls.CACHE_DIR
         logger.info(f"모델 캐시 디렉토리 설정: {cls.CACHE_DIR}")
+        logger.info(f"Whisper 캐시 디렉토리 설정: {cls.WHISPER_CACHE_DIR}")
     
     @classmethod
     def download_huggingface_model(cls, model_name: str, model_type: str = "auto"):
@@ -80,22 +86,21 @@ class ModelManager:
     
     @classmethod
     def download_whisper_model(cls, model_size: str = "large-v3"):
-        """Whisper 모델 다운로드 (faster-whisper)
-        
-        Note: faster-whisper은 자체 캐시를 사용하므로
-        모델을 한 번 로드하여 캐시 생성
-        """
+        """Whisper 모델 다운로드 (faster-whisper). 프로젝트 models/whisper에 저장."""
         try:
+            cls.setup_cache_dir()
+            download_root = cls.WHISPER_CACHE_DIR
             # 지연 import: faster-whisper은 선택적 의존성
             from faster_whisper import WhisperModel
             
-            logger.info(f"Whisper 모델 다운로드 중: {model_size}")
-            # faster-whisper은 자체 캐시 사용
-            # 모델을 한 번 로드하여 캐시 생성 (메모리 해제)
+            logger.info(f"Whisper 모델 다운로드 중: {model_size} -> {download_root}")
             import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
             compute_type = "int8"  # 다운로드용으로는 int8 사용
-            model = WhisperModel(model_size, device=device, compute_type=compute_type)
+            model = WhisperModel(
+                model_size, device=device, compute_type=compute_type,
+                download_root=download_root,
+            )
             logger.info(f"✓ Whisper 모델 다운로드 완료: {model_size}")
             del model  # 메모리 해제
         except ImportError as e:
@@ -171,3 +176,10 @@ class ModelManager:
     def get_cache_dir(cls) -> str:
         """캐시 디렉토리 경로 반환"""
         return cls.CACHE_DIR
+
+    @classmethod
+    def get_whisper_cache_dir(cls) -> str:
+        """Whisper 모델 캐시 디렉토리 경로 반환 (다운로드/로드 시 download_root로 사용)"""
+        if cls.WHISPER_CACHE_DIR is None:
+            cls.setup_cache_dir()
+        return cls.WHISPER_CACHE_DIR

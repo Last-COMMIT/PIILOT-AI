@@ -54,6 +54,8 @@ data/chroma_db/
 # Models
 # HuggingFace 모델은 크기가 크므로 제외
 models/huggingface/
+# Whisper(faster-whisper) 다운로드 모델 제외
+models/whisper/
 # 로컬 모델 파일들은 포함 (작은 크기)
 # models/vision/*.pt
 # models/encryption_classifier/*.pkl

@@ -54,7 +54,7 @@ Spring Boot                    PIILOT Service
 Spring Boot                    PIILOT Service
      │                              │
      │  POST /api/ai/db/check-encryption
-     │  {data_samples: [...]}       │
+     │  {encryption_info: [...]}       │
      ├─────────────────────────────>│
      │                              │
      │                              ├─> API Layer (db_ai.py)
@@ -315,7 +315,7 @@ Spring Boot                    PIILOT Service
 3. Spring Boot
    └─> 탐지된 컬럼에 대해 데이터 샘플 조회
        └─> POST /api/ai/db/check-encryption
-           {data_samples: [{column: "users.name", sample: "홍길동"}, ...]}
+           {encryption_info: [{column: "users.name", sample: "홍길동"}, ...]}
 
 4. PIILOT
    └─> EncryptionClassifier.classify()
