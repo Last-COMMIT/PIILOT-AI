@@ -35,7 +35,7 @@ def insert_to_database(chunks: List[Dict[str, Any]], embeddings: Tensor, batch_s
         database=parsed_url.path.lstrip('/')
     )
     insert_query = """
-        INSERT INTO test2_api_law_data (
+        INSERT INTO law_data (
             chunk_text, embedding,
             document_title, law_name, article, page, effective_date
         ) VALUES (
