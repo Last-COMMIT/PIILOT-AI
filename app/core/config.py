@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
 
+    # DB 비밀번호 복호화 (백엔드 AES-256-GCM과 동일 키. 환경 변수 ENCRYPTION_AES_KEY, 32바이트 UTF-8)
+    ENCRYPTION_AES_KEY: str = "piilot-aes-256-secret-key-32by!!"
+
     # --- PII Detector Settings ---
     PII_MODEL_PATH: str = "ParkJunSeong/PIILOT_NER_Model"
     
