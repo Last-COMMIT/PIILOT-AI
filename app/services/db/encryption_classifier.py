@@ -11,6 +11,7 @@ from sqlalchemy.engine import Engine
 from app.utils.logger import logger
 from app.config import settings
 from app.utils.db_connect import create_db_engine
+from app.utils.aes_decrypt import decrypt_db_password
 from app.services.db.detectors.classifier import classify_batch
 
 
@@ -74,9 +75,19 @@ class EncryptionClassifier:
                 "encrypted_password": row.encrypted_password
             }
         
-        # 비밀번호 복호화 (TODO: 나중에 구현)
-        decrypted_password = connection_info["encrypted_password"]
-        connection_info["password"] = decrypted_password
+        # 비밀번호 복호화: ENCRYPTION_AES_KEY가 있으면 AES-256-GCM 복호화 필수, 없으면 평문으로 사용
+        encrypted_password = connection_info["encrypted_password"]
+        if encrypted_password is None:
+            encrypted_password = ""
+        raw_str = str(encrypted_password).strip()
+        aes_key = getattr(settings, "ENCRYPTION_AES_KEY", None) or ""
+        if aes_key and len(aes_key.encode("utf-8")) == 32:
+            # 키가 설정된 경우 복호화 실패 시 평문 폴백 없이 예외 전파 (접속 실패 → API 오류 반환)
+            connection_info["password"] = decrypt_db_password(raw_str, aes_key)
+            logger.info("연결 정보 조회 connection_id=%s, 비밀번호 복호화 완료", connection_id)
+        else:
+            connection_info["password"] = raw_str
+            logger.info("연결 정보 조회 connection_id=%s, 비밀번호 평문 사용(ENCRYPTION_AES_KEY 미설정)", connection_id)
         
         # 캐시에 저장
         self._connection_cache[connection_id] = connection_info
