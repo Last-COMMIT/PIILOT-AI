@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 from transformers import AutoTokenizer, AutoModel
 from torch import Tensor
-from scripts.embeddings import load_chunks_from_json
+from scripts.law_pdf_preprocess import build_chunks_with_metadata, extract_and_fix_pages
 from scripts.embeddings import generate_embeddings_batch
 from app.utils.logger import logger
 # DB 연결 (기존 방식 사용)
@@ -22,15 +22,6 @@ from app.core.config import settings
 # # 프로젝트 루트를 sys.path에 추가
 current_dir = Path(__file__).parent
 project_root = current_dir.parent
-# sys.path.insert(0, str(project_root))
-
-# 모델 경로 설정 (임베딩 모델용)
-# model_cache_dir = os.path.join(project_root, "models", "multilingual-e5-large-instruct")
-# os.makedirs(model_cache_dir, exist_ok=True)
-
-# 환경변수로도 설정
-# os.environ["HF_HOME"] = model_cache_dir
-# os.environ["TRANSFORMERS_CACHE"] = model_cache_dir
 
 def insert_to_database(chunks: List[Dict[str, Any]], embeddings: Tensor, batch_size: int = 100):
     """데이터베이스에 청크와 임베딩 삽입"""
@@ -44,7 +35,7 @@ def insert_to_database(chunks: List[Dict[str, Any]], embeddings: Tensor, batch_s
         database=parsed_url.path.lstrip('/')
     )
     insert_query = """
-        INSERT INTO test2_law_data (
+        INSERT INTO law_data (
             chunk_text, embedding,
             document_title, law_name, article, page, effective_date
         ) VALUES (
@@ -90,21 +81,39 @@ def insert_to_database(chunks: List[Dict[str, Any]], embeddings: Tensor, batch_s
     finally:
         conn.close()
 
-async def main():
+async def law_pdf_to_vector(file_path: str):
     """법령 데이터를 Vector DB에 로드"""
-    json_path = project_root / "test_pdf" / "chunks_output.json"
-    if not os.path.exists(json_path):
-        logger.info(f"파일 없음: {json_path}")
-        return
+
+    # TODO(pgvector):
+    # - PostgreSQL에 pgvector extension 설치/활성화
+    # - regulations 테이블 생성/마이그레이션
+    # - 법령 텍스트 로드(파일/DB/크롤링 등)
+    # - 임베딩 생성 후 upsert_regulations(items)로 적재
     
-    # JSON 파일 로드
-    chunks = load_chunks_from_json(json_path)
+    if not os.path.exists(file_path):
+        logger.info(f"파일 없음: {file_path}")
+        return
+
+    fixed_pages = extract_and_fix_pages(file_path)
+
+    if not fixed_pages:
+        logger.error("fixed_pages가 비어있음")
+        return
+
+    # 청크 생성
+    chunks = build_chunks_with_metadata(
+        fixed_pages=fixed_pages,
+        file_path=file_path
+    )
+
+    logger.info(f"chunks 생성 완료: {len(chunks) if chunks else 0}개")
+    if not chunks:
+        logger.error("chunks가 비어있음")
+        return
 
     # 모델 로드
     model_name = 'intfloat/multilingual-e5-large-instruct'
-    # tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=model_cache_dir)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # model = AutoModel.from_pretrained(model_name, cache_dir=model_cache_dir)
     model = AutoModel.from_pretrained(model_name)
     model.eval()
 
@@ -118,17 +127,7 @@ async def main():
 
     # 데이터베이스 삽입
     insert_to_database(chunks, embeddings)
+
+    vector_db = VectorDB
     
-    vector_db = VectorDB()
-
-    # TODO(pgvector):
-    # - PostgreSQL에 pgvector extension 설치/활성화
-    # - regulations 테이블 생성/마이그레이션
-    # - 법령 텍스트 로드(파일/DB/크롤링 등)
-    # - 임베딩 생성 후 upsert_regulations(items)로 적재
-    
-    logger.info(f"Vector DB 초기화 완료")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    logger.info(f"Vector DB 저장 완료: {file_path}")

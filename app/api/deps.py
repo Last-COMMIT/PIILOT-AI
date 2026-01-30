@@ -83,3 +83,10 @@ def get_langgraph_chatbot():
     from app.services.chat.langgraph_chatbot import create_chatbot_app
     logger.info("LangGraph 챗봇 의존성 생성")
     return create_chatbot_app()
+
+
+def get_regulation_upload():
+    """법령 PDF 업로드 의존성"""
+    from scripts.setup_vector_db import law_pdf_to_vector
+    logger.info("법령 PDF 업로드 의존성 생성")
+    return law_pdf_to_vector

@@ -4,8 +4,7 @@
 - VectorDB.search()에서 쿼리 임베딩에도 재사용 가능
 """
 
-import json
-from typing import List, Dict, Any
+from typing import List
 import torch
 import torch.nn.functional as F
 from torch import Tensor
@@ -13,11 +12,6 @@ from transformers import AutoTokenizer, AutoModel
 
 # 프로젝트 경로 (로컬)
 from pathlib import Path
-
-CURRENT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = CURRENT_DIR.parent
-json_path = PROJECT_ROOT / "test_pdf" / "chunks_output.json"
-
 
 def average_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
     """평균 풀링으로 임베딩 생성"""
@@ -28,13 +22,6 @@ def average_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
 def get_detailed_instruct(task_description: str, query: str) -> str:
     """임베딩용 instruction 포맷"""
     return f'Instruct: {task_description}\nQuery: {query}'
-
-# JSON 파일
-def load_chunks_from_json(json_path: str) -> List[Dict[str, Any]]:
-    """JSON 파일에서 청크 데이터 로드"""
-    with open(json_path, 'r', encoding='utf-8') as f:
-        chunks = json.load(f)
-    return chunks
 
 def generate_embeddings_batch(
     texts: List[str],

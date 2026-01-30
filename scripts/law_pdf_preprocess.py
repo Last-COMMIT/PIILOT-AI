@@ -11,12 +11,8 @@ from collections import defaultdict
 # 프로젝트 경로 (로컬)
 from pathlib import Path
 
-CURRENT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = CURRENT_DIR.parent
-pdf_path = PROJECT_ROOT / "test_pdf" / "개인정보 보호법_test.pdf"
-
-def extract_pdf_blocks(pdf_path):
-    doc = fitz.open(pdf_path)
+def extract_pdf_blocks(file_path):
+    doc = fitz.open(file_path)
     blocks = []
 
     for page_index, page in enumerate(doc):
@@ -31,7 +27,7 @@ def extract_pdf_blocks(pdf_path):
                 cleaned = text.strip()
                 if cleaned:
                     blocks.append({
-                        "page": page_no,  # page 번호(메타데이터)
+                        "page": page_no,
                         "text": cleaned
                     })
 
@@ -77,13 +73,13 @@ def _is_structural_token(text: str) -> bool:
 
 
 # 추출: page + bbox 포함
-def extract_pdf_blocks(pdf_path: str) -> List[Dict[str, Any]]:
+def extract_pdf_blocks(file_path: str) -> List[Dict[str, Any]]:
     """
     PyMuPDF blocks 추출(텍스트 블록만)
     반환 원소:
       { "page": int(1-based), "text": str, "bbox": (x0,y0,x1,y1), "page_h": float }
     """
-    doc = fitz.open(pdf_path)
+    doc = fitz.open(file_path)
     blocks: List[Dict[str, Any]] = []
 
     for page_index, page in enumerate(doc):
@@ -191,13 +187,13 @@ def remove_repeated_text(
 
 # 최종: 추출 -> 1차(위치) -> 2차(반복) -> (page,text)
 def extract_and_remove_noise(
-    pdf_path: str,
+    file_path: str,
     top_ratio: float = 0.08,
     bottom_ratio: float = 0.92,
     min_page_ratio: float = 0.35,
     max_repeat_len: int = 100,
 ) -> Dict[str, Any]:
-    raw = extract_pdf_blocks(pdf_path)
+    raw = extract_pdf_blocks(file_path)
 
     after_pos, removed_pos = remove_header_footer_by_position(
         raw, top_ratio=top_ratio, bottom_ratio=bottom_ratio
@@ -301,6 +297,13 @@ def normalize_pages_linebreaks(pages: List[Dict[str, Any]]) -> List[Dict[str, An
             out.append({"page": p["page"], "text": fixed})
     return out
 
+def extract_and_fix_pages(file_path: str) -> List[Dict[str, Any]]:
+    """PDF 파일에서 fixed_pages 생성"""
+    result = extract_and_remove_noise(file_path)
+    cleaned_blocks = result["cleaned_blocks"]
+    combined = combine_blocks_by_page(cleaned_blocks)
+    fixed_pages = normalize_pages_linebreaks(combined)
+    return fixed_pages
 
 # 제n조 / 제n조의m
 RE_ARTICLE = re.compile(r"^(제\s*\d+\s*조(\s*의\s*\d+)?)(.*)$")
@@ -329,12 +332,12 @@ def _hangul_to_item(hangul: str) -> str:
     """한글 자모를 목(目) 형식으로 변환 (예: "가" -> "가목")"""
     return f"{hangul}목"
 
-def extract_metadata_from_pdf(pdf_path: str, fixed_pages: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+def extract_metadata_from_pdf(file_path: str, fixed_pages: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
     """
     PDF 파일명과 내용에서 메타데이터 자동 추출
     
     Args:
-        pdf_path: PDF 파일 경로
+        file_path: PDF 파일 경로
         fixed_pages: 페이지별 텍스트 리스트
     
     Returns:
@@ -344,7 +347,7 @@ def extract_metadata_from_pdf(pdf_path: str, fixed_pages: List[Dict[str, Any]]) 
 
 
 # 1. document_title: 파일명에서 추출
-    filename = os.path.basename(pdf_path)
+    filename = os.path.basename(file_path)
     document_title = filename.replace('.pdf', '').replace('.PDF', '').strip()
     metadata['document_title'] = document_title
     
@@ -400,7 +403,7 @@ def extract_metadata_from_pdf(pdf_path: str, fixed_pages: List[Dict[str, Any]]) 
 
 def build_chunks_with_metadata(
     fixed_pages: List[Dict[str, Any]],
-    pdf_path: Optional[str] = None,
+    file_path: Optional[str] = None,
     document_title: Optional[str] = None,
     law_name: Optional[str] = None,
     effective_date: Optional[str] = None,
@@ -408,7 +411,7 @@ def build_chunks_with_metadata(
     """
     입력: 
         fixed_pages: [{"page": n, "text": "...(page 전체 텍스트)..."}]
-        pdf_path: PDF 파일 경로 (메타데이터 자동 추출용, 선택적)
+        file_path: PDF 파일 경로 (메타데이터 자동 추출용, 선택적)
         document_title: 문서 제목 (None이면 자동 추출)
         law_name: 법령명/규정명 (None이면 자동 추출)
         effective_date: 시행일/개정일 (None이면 자동 추출 시도)
@@ -416,13 +419,13 @@ def build_chunks_with_metadata(
     metadata 스키마는 사용자 정의 형태에 맞춘다.
     """
     # 메타데이터 자동 추출
-    if pdf_path:
-        auto_metadata = extract_metadata_from_pdf(pdf_path, fixed_pages)
+    if file_path:
+        auto_metadata = extract_metadata_from_pdf(file_path, fixed_pages)
         document_title = document_title or auto_metadata['document_title']
         law_name = law_name or auto_metadata['law_name']
         effective_date = effective_date or auto_metadata['effective_date']
     else:
-        # pdf_path가 없으면 기본값 사용
+        # file_path 없으면 기본값 사용
         document_title = document_title or "문서"
         law_name = law_name or document_title
         effective_date = effective_date  # None 가능
@@ -466,153 +469,153 @@ def build_chunks_with_metadata(
 
         buf_lines, buf_start_page, buf_article, buf_paragraph, buf_item, buf_subitem = [], None, None, None, None, None
 
-        for page_obj in fixed_pages:
-            page_no = page_obj["page"]
-            lines = [ln.strip() for ln in (page_obj["text"] or "").splitlines() if ln.strip()]
+    for page_obj in fixed_pages:
+        page_no = page_obj["page"]
+        lines = [ln.strip() for ln in (page_obj["text"] or "").splitlines() if ln.strip()]
 
-            for line in lines:
-                # 1) 조 감지
-                m_art = RE_ARTICLE.match(line)
-                if m_art:
-                    # 새 조 시작 => 이전 버퍼 flush
-                    flush()
+        for line in lines:
+            # 1) 조 감지
+            m_art = RE_ARTICLE.match(line)
+            if m_art:
+                # 새 조 시작 => 이전 버퍼 flush
+                flush()
 
-                    art = _clean_token(m_art.group(1))  # "제 6 조" -> "제6조"
-                    rest = (m_art.group(3) or "").strip()
+                art = _clean_token(m_art.group(1))  # "제 6 조" -> "제6조"
+                rest = (m_art.group(3) or "").strip()
 
-                    current_article = art
-                    current_paragraph = None  # 조 바뀌면 항 컨텍스트 리셋
-                    current_item = None  # 조 바뀌면 호 컨텍스트 리셋
-                    current_subitem = None  # 조 바뀌면 목 컨텍스트 리셋
-                    current_item_subitems = []  # 목 리스트 초기화
-                   
-                    # 같은 줄에 동그라미 항이 있는지 확인 (예: "제3조 ... ① ...")
-                    m_c_inline = RE_PARAGRAPH_CIRCLE.search(rest)
-                    if m_c_inline:
-                        # 동그라미 항이 있으면 항으로 처리
-                        par = _circle_to_paragraph(m_c_inline.group(1))
-                        current_paragraph = par
-                        buf_paragraph = current_paragraph
-                    else:
-                        buf_paragraph = None  # 조 제목 라인은 항 없음
-
-                    # 새 버퍼 시작
-                    buf_start_page = page_no
-                    buf_article = current_article
-                    buf_item = None
-                    buf_subitem = None
-                    buf_lines = [line] if not rest else [f"{art} {rest}".strip()]
-                    continue
-
-                # 2) 항 감지(제n항) - 항은 조에 포함 (별도 청크 아님)
-                m_p = RE_PARAGRAPH_WORD.match(line)
-                if m_p:
-                    # flush() 제거 - 항은 같은 조에 포함
-
-                    par = _clean_token(m_p.group(1))  # "제 1 항" -> "제1항"
-                    rest = (m_p.group(2) or "").strip()
+                current_article = art
+                current_paragraph = None  # 조 바뀌면 항 컨텍스트 리셋
+                current_item = None  # 조 바뀌면 호 컨텍스트 리셋
+                current_subitem = None  # 조 바뀌면 목 컨텍스트 리셋
+                current_item_subitems = []  # 목 리스트 초기화
+                
+                # 같은 줄에 동그라미 항이 있는지 확인 (예: "제3조 ... ① ...")
+                m_c_inline = RE_PARAGRAPH_CIRCLE.search(rest)
+                if m_c_inline:
+                    # 동그라미 항이 있으면 항으로 처리
+                    par = _circle_to_paragraph(m_c_inline.group(1))
                     current_paragraph = par
-                    current_item = None  # 항 바뀌면 호 컨텍스트 리셋
-                    current_subitem = None  # 항 바뀌면 목 컨텍스트 리셋
-                    current_item_subitems = []  # 목 리스트 초기화
-        
+                    buf_paragraph = current_paragraph
+                else:
+                    buf_paragraph = None  # 조 제목 라인은 항 없음
+
+                # 새 버퍼 시작
+                buf_start_page = page_no
+                buf_article = current_article
+                buf_item = None
+                buf_subitem = None
+                buf_lines = [line] if not rest else [f"{art} {rest}".strip()]
+                continue
+
+            # 2) 항 감지(제n항) - 항은 조에 포함 (별도 청크 아님)
+            m_p = RE_PARAGRAPH_WORD.match(line)
+            if m_p:
+                # flush() 제거 - 항은 같은 조에 포함
+
+                par = _clean_token(m_p.group(1))  # "제 1 항" -> "제1항"
+                rest = (m_p.group(2) or "").strip()
+                current_paragraph = par
+                current_item = None  # 항 바뀌면 호 컨텍스트 리셋
+                current_subitem = None  # 항 바뀌면 목 컨텍스트 리셋
+                current_item_subitems = []  # 목 리스트 초기화
+    
+                buf_start_page = page_no if buf_start_page is None else min(buf_start_page, page_no)
+                buf_article = current_article
+                buf_paragraph = current_paragraph
+                buf_item = None
+                buf_subitem = None
+                # 조에 포함되므로 기존 버퍼에 추가 (새 버퍼 시작하지 않음)
+                if buf_lines:
+                    buf_lines.append(line if not rest else f"{par} {rest}".strip())
+                else:
+                    buf_lines = [line if not rest else f"{par} {rest}".strip()]
+                continue
+
+            # 3) 항 감지(①②③…) - 항은 조에 포함 (별도 청크 아님)
+            m_c = RE_PARAGRAPH_CIRCLE.match(line)
+            if m_c:
+                # flush() 제거 - 항은 같은 조에 포함
+
+                par = _circle_to_paragraph(m_c.group(1))
+                rest = (m_c.group(2) or "").strip()
+
+                current_paragraph = par
+                current_item = None  # 항 바뀌면 호 컨텍스트 리셋
+                current_subitem = None  # 항 바뀌면 목 컨텍스트 리셋
+                current_item_subitems = []  # 목 리스트 초기화
+                
+                buf_start_page = page_no if buf_start_page is None else min(buf_start_page, page_no)
+                buf_article = current_article
+                buf_paragraph = current_paragraph
+                buf_item = None
+                buf_subitems = []
+                # 조에 포함되므로 기존 버퍼에 추가 (새 버퍼 시작하지 않음)
+                if buf_lines:
+                    buf_lines.append(line if not rest else f"{m_c.group(1)} {rest}".strip())
+                else:
+                    buf_lines = [line if not rest else f"{m_c.group(1)} {rest}".strip()]
+                continue
+
+            # 4) 호(號) 감지(1., 2., 1의2. 등) - 호는 조에 포함
+            m_item_num = RE_ITEM_NUMBER.match(line)
+            if m_item_num:
+                # flush() 제거 - 호는 같은 조에 포함
+
+                item_num = _number_to_item(m_item_num.group(1))  # "1" -> "제1호"
+                rest = (m_item_num.group(2) or "").strip()
+                current_item = item_num
+                current_subitem = None  # 호 바뀌면 목 컨텍스트 리셋
+                current_item_subitems = []  # 새 호 시작 시 목 리스트 초기화
+
+                # 호는 조에 포함되므로 기존 버퍼에 추가 (새 버퍼 시작하지 않음)
+                buf_start_page = page_no if buf_start_page is None else min(buf_start_page, page_no)
+                buf_article = current_article
+                buf_paragraph = current_paragraph
+                buf_item = item_num
+                buf_subitem = None  # 호 시작 시 목 없음
+                if buf_lines:
+                    buf_lines.append(line if not rest else f"{m_item_num.group(1)}. {rest}".strip())
+                else:
+                    buf_lines = [line if not rest else f"{m_item_num.group(1)}. {rest}".strip()]
+                continue
+
+            # 5) 목(目) 감지(가., 나., 다. 등) - 목은 조에 포함 (별도 청크 아님)
+            m_item_hangul = RE_ITEM_HANGUL.match(line)
+            if m_item_hangul:
+                # flush() 제거 - 목은 같은 호 내에서 계속 누적
+
+                item_hangul = _hangul_to_item(m_item_hangul.group(1))  # "가" -> "가목"
+                rest = (m_item_hangul.group(2) or "").strip()
+
+                current_subitem = item_hangul
+
+                # 목은 현재 호에 추가 (새 청크 시작하지 않음)
+                buf_subitem = item_hangul  # 현재 목 업데이트
+                # 목 라인을 버퍼에 추가 (새 버퍼 시작하지 않음)
+                if buf_lines:  # 이미 버퍼에 내용이 있으면
+                    buf_lines.append(line if not rest else f"{m_item_hangul.group(1)}. {rest}".strip())
+                else:  # 버퍼가 비어있으면 (호가 없이 목만 있는 경우)
                     buf_start_page = page_no if buf_start_page is None else min(buf_start_page, page_no)
                     buf_article = current_article
                     buf_paragraph = current_paragraph
-                    buf_item = None
-                    buf_subitem = None
-                    # 조에 포함되므로 기존 버퍼에 추가 (새 버퍼 시작하지 않음)
-                    if buf_lines:
-                        buf_lines.append(line if not rest else f"{par} {rest}".strip())
-                    else:
-                        buf_lines = [line if not rest else f"{par} {rest}".strip()]
-                    continue
+                    buf_item = current_item
+                    buf_lines = [line if not rest else f"{m_item_hangul.group(1)}. {rest}".strip()]
+                continue
 
-                # 3) 항 감지(①②③…) - 항은 조에 포함 (별도 청크 아님)
-                m_c = RE_PARAGRAPH_CIRCLE.match(line)
-                if m_c:
-                    # flush() 제거 - 항은 같은 조에 포함
+            # 6) 일반 라인: 현재 버퍼에 누적
+            # (조가 아직 안 잡힌 구간은 스킵하거나 별도 처리 가능)
+            if buf_start_page is None:
+                # 조/항 시작 전의 머리말(목차/서문 등)일 가능성이 큼 -> 필요하면 따로 저장
+                continue
 
-                    par = _circle_to_paragraph(m_c.group(1))
-                    rest = (m_c.group(2) or "").strip()
+            # 일반 라인 처리 시 현재 메타데이터 유지 (이미 설정된 경우)
+            if buf_article is None:
+                buf_article = current_article
+            if buf_paragraph is None:
+                buf_paragraph = current_paragraph
+            # buf_items, buf_subitems는 이미 배열로 관리되므로 별도 처리 불필요
 
-                    current_paragraph = par
-                    current_item = None  # 항 바뀌면 호 컨텍스트 리셋
-                    current_subitem = None  # 항 바뀌면 목 컨텍스트 리셋
-                    current_item_subitems = []  # 목 리스트 초기화
-                    
-                    buf_start_page = page_no if buf_start_page is None else min(buf_start_page, page_no)
-                    buf_article = current_article
-                    buf_paragraph = current_paragraph
-                    buf_item = None
-                    buf_subitems = []
-                    # 조에 포함되므로 기존 버퍼에 추가 (새 버퍼 시작하지 않음)
-                    if buf_lines:
-                        buf_lines.append(line if not rest else f"{m_c.group(1)} {rest}".strip())
-                    else:
-                        buf_lines = [line if not rest else f"{m_c.group(1)} {rest}".strip()]
-                    continue
+            buf_lines.append(line)
 
-                # 4) 호(號) 감지(1., 2., 1의2. 등) - 호는 조에 포함
-                m_item_num = RE_ITEM_NUMBER.match(line)
-                if m_item_num:
-                    # flush() 제거 - 호는 같은 조에 포함
-
-                    item_num = _number_to_item(m_item_num.group(1))  # "1" -> "제1호"
-                    rest = (m_item_num.group(2) or "").strip()
-                    current_item = item_num
-                    current_subitem = None  # 호 바뀌면 목 컨텍스트 리셋
-                    current_item_subitems = []  # 새 호 시작 시 목 리스트 초기화
-
-                    # 호는 조에 포함되므로 기존 버퍼에 추가 (새 버퍼 시작하지 않음)
-                    buf_start_page = page_no if buf_start_page is None else min(buf_start_page, page_no)
-                    buf_article = current_article
-                    buf_paragraph = current_paragraph
-                    buf_item = item_num
-                    buf_subitem = None  # 호 시작 시 목 없음
-                    if buf_lines:
-                        buf_lines.append(line if not rest else f"{m_item_num.group(1)}. {rest}".strip())
-                    else:
-                        buf_lines = [line if not rest else f"{m_item_num.group(1)}. {rest}".strip()]
-                    continue
-
-                # 5) 목(目) 감지(가., 나., 다. 등) - 목은 조에 포함 (별도 청크 아님)
-                m_item_hangul = RE_ITEM_HANGUL.match(line)
-                if m_item_hangul:
-                    # flush() 제거 - 목은 같은 호 내에서 계속 누적
-
-                    item_hangul = _hangul_to_item(m_item_hangul.group(1))  # "가" -> "가목"
-                    rest = (m_item_hangul.group(2) or "").strip()
-
-                    current_subitem = item_hangul
-
-                    # 목은 현재 호에 추가 (새 청크 시작하지 않음)
-                    buf_subitem = item_hangul  # 현재 목 업데이트
-                    # 목 라인을 버퍼에 추가 (새 버퍼 시작하지 않음)
-                    if buf_lines:  # 이미 버퍼에 내용이 있으면
-                        buf_lines.append(line if not rest else f"{m_item_hangul.group(1)}. {rest}".strip())
-                    else:  # 버퍼가 비어있으면 (호가 없이 목만 있는 경우)
-                        buf_start_page = page_no if buf_start_page is None else min(buf_start_page, page_no)
-                        buf_article = current_article
-                        buf_paragraph = current_paragraph
-                        buf_item = current_item
-                        buf_lines = [line if not rest else f"{m_item_hangul.group(1)}. {rest}".strip()]
-                    continue
-
-                # 6) 일반 라인: 현재 버퍼에 누적
-                # (조가 아직 안 잡힌 구간은 스킵하거나 별도 처리 가능)
-                if buf_start_page is None:
-                    # 조/항 시작 전의 머리말(목차/서문 등)일 가능성이 큼 -> 필요하면 따로 저장
-                    continue
-
-                # 일반 라인 처리 시 현재 메타데이터 유지 (이미 설정된 경우)
-                if buf_article is None:
-                    buf_article = current_article
-                if buf_paragraph is None:
-                    buf_paragraph = current_paragraph
-                # buf_items, buf_subitems는 이미 배열로 관리되므로 별도 처리 불필요
-
-                buf_lines.append(line)
-
-        flush()
-        return chunks
+    flush()
+    return chunks

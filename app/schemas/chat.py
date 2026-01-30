@@ -19,6 +19,9 @@ class RegulationSearchRequest(BaseModel):
     n_results: Optional[int] = 10
     top_n: Optional[int] = 5
 
+class RegulationUploadRequest(BaseModel):
+    """법령 PDF 업로드 요청"""
+    file_path: str
 
 # ========== 응답 ==========
 
@@ -56,3 +59,7 @@ class LangGraphChatResponse(BaseModel):
     query_type: str = "general"
     relevance_score: Optional[float] = None
     hallucination_score: Optional[float] = None
+
+class RegulationUploadResponse(BaseModel):
+    """법령 PDF 업로드 응답"""
+    status: str
