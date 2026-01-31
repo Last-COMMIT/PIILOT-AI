@@ -1,9 +1,10 @@
 """
 향상된 얼굴 추적 기능이 있는 비디오 프로세서 (Kalman Filter 사용)
+- 얼굴 블러 + 화면 텍스트 PII 영역 블러 (옵션: bbox 패딩)
 """
 import cv2
 import numpy as np
-from typing import List
+from typing import List, Dict, Optional
 from app.ml.face_detector import YOLOFaceDetector
 from app.services.file.processors.blur_censor import BlurCensor
 from app.core.logging import logger
@@ -136,8 +137,18 @@ class VideoProcessorEnhanced:
         self.tracked_faces = [track for track in updated_tracks if track['age'] < self.max_track_frames]
         return [track['bbox'] for track in self.tracked_faces]
 
-    def process_video(self, video_path, output_path, conf_thresh=0.25):
-        """영상 처리 (향상된 얼굴 추적)"""
+    def process_video(
+        self,
+        video_path,
+        output_path,
+        conf_thresh=0.25,
+        text_pii_regions_by_frame: Optional[Dict[int, List]] = None,
+    ):
+        """
+        영상 처리 (얼굴 블러 + 화면 텍스트 PII 영역 블러)
+        text_pii_regions_by_frame: {frame_number: [(x1,y1,x2,y2), ...]}
+        """
+        text_pii_regions_by_frame = text_pii_regions_by_frame or {}
         capture = cv2.VideoCapture(video_path)
         if not capture.isOpened():
             raise ValueError(f"Could not open video at {video_path}")
@@ -167,6 +178,19 @@ class VideoProcessorEnhanced:
                             frame = self.censor.apply(frame, bbox)
                         except Exception as e:
                             logger.debug(f"블러 적용 실패 (프레임 {frame_count}): {e}")
+                # 화면 텍스트 PII 영역 블러 (탐지 시 이미 패딩 적용된 bbox 사용, 중복 패딩 없음)
+                for bbox_tuple in text_pii_regions_by_frame.get(frame_count, []):
+                    if len(bbox_tuple) >= 4:
+                        x1, y1, x2, y2 = bbox_tuple[0], bbox_tuple[1], bbox_tuple[2], bbox_tuple[3]
+                        x1 = max(0, min(x1, width - 1))
+                        y1 = max(0, min(y1, height - 1))
+                        x2 = max(0, min(x2, width))
+                        y2 = max(0, min(y2, height))
+                        if x2 > x1 and y2 > y1:
+                            try:
+                                frame = self.censor.apply(frame, [x1, y1, x2, y2, 1.0])
+                            except Exception as e:
+                                logger.debug(f"텍스트 PII 블러 실패 (프레임 {frame_count}): {e}")
                 out.write(frame)
                 if frame_count % 50 == 0:
                     logger.info(f"비디오 처리 중... {frame_count}프레임 (추적 중: {len(self.tracked_faces)}개 얼굴)")
