@@ -74,3 +74,14 @@ class EncryptionCheckResult(BaseModel):
 class EncryptionCheckResponse(BaseModel):
     """암호화 여부 확인 응답"""
     results: List[EncryptionCheckResult]
+
+
+class SupportedDbmsItem(BaseModel):
+    """지원 DBMS 항목 (connection 등록 시 dbms_type_id 참고용)"""
+    id: str
+    name: str
+
+
+class SupportedDbmsResponse(BaseModel):
+    """접속 가능한 DBMS 목록 응답"""
+    dbms_list: List[SupportedDbmsItem]
