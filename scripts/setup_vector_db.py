@@ -14,6 +14,7 @@ from torch import Tensor
 from scripts.law_pdf_preprocess import build_chunks_with_metadata, extract_and_fix_pages
 from scripts.embeddings import generate_embeddings_batch
 from app.utils.logger import logger
+from app.core.model_manager import ModelManager
 # DB 연결 (기존 방식 사용)
 from app.crud.db_connect import get_connection
 from urllib.parse import urlparse
@@ -111,10 +112,13 @@ async def law_pdf_to_vector(file_path: str):
         logger.error("chunks가 비어있음")
         return
 
-    # 모델 로드
-    model_name = 'intfloat/multilingual-e5-large-instruct'
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name)
+    # 모델 로드 (다른 서비스와 동일하게 models/huggingface에서 로드)
+    ModelManager.setup_cache_dir()
+    cache_dir = ModelManager.get_cache_dir()
+    model_name = ModelManager.HUGGINGFACE_MODELS["embedding"]["name"]
+    logger.info(f"임베딩 모델 로드: {model_name} (캐시: {cache_dir})")
+    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+    model = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
     model.eval()
 
     # 임베딩 생성

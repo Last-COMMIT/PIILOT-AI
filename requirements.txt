@@ -23,6 +23,8 @@ flashrank
 sqlalchemy>=2.0.25
 psycopg[binary]>=3.2.0
 pgvector>=0.3.6
+pymysql>=1.1.0
+oracledb>=2.0.0
 python-docx
 
 # Computer Vision (얼굴: ultralytics, 영상 화면 텍스트 PII: easyocr)
