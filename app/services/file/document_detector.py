@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Dict, List
 from .extractors.text_extractor import TextExtractor
 from app.ml.pii_detectors.hybrid_detector import HybridPIIDetector
-from .masker import Masker
+# from .masker import Masker
+from app.services.file.processors.document_masker import DocumentMasker
+from app.services.file.face_detector import YOLOFaceDetector
+from app.services.file.processors.image_masker import ImageMasker
 from app.config import PII_NAMES, OUTPUT_DIR
 from app.core.logging import logger
 
@@ -15,7 +18,18 @@ class DocumentDetector():
                  confidence_thresholds: Dict[str, float] = None):
         self.extractor = TextExtractor(use_gpu=use_gpu)
         self.detector = HybridPIIDetector(model_path, confidence_thresholds)
-        self.deidentifier = Masker(mask_char=mask_char)
+        # self.deidentifier = Masker(mask_char=mask_char)
+
+        # 얼굴 인식 및 이미지 마스킹 도구 초기화
+        self.face_detector = YOLOFaceDetector()
+        self.image_masker = ImageMasker()
+        
+        # DocumentMasker 초기화 (얼굴 인식기 주입)
+        self.deidentifier = DocumentMasker(
+            mask_char=mask_char,
+            face_detector=self.face_detector,
+            image_masker=self.image_masker
+        )
 
     def process_file(self, input_path: str, output_path: str = None,
                      method: str = 'mask') -> Dict:
