@@ -7,6 +7,7 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
 from app.utils.logger import logger
+from app.core.model_manager import ModelManager
 from typing import List, Dict
 from pydantic import Field
 import time
@@ -209,7 +210,21 @@ class RegulationSearch:
             # Compressor 및 Compression Retriever 생성 (top_n에 따라 동적으로 생성)
             logger.debug(f"FlashrankRerank Compressor 생성 중 (top_n={top_n})...")
             compressor_start_time = time.time()
-            compressor = FlashrankRerank(model="ms-marco-MiniLM-L-12-v2", top_n=top_n)
+            
+            # Flashrank 캐시 디렉토리 설정
+            ModelManager.setup_cache_dir()
+            flashrank_cache_dir = ModelManager.get_flashrank_cache_dir()
+            logger.debug(f"Flashrank 캐시 디렉토리: {flashrank_cache_dir}")
+            
+            # flashrank.Ranker를 직접 생성하여 cache_dir 지정
+            try:
+                ranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir=flashrank_cache_dir)
+                compressor = FlashrankRerank(client=ranker, top_n=top_n)
+            except Exception as e:
+                # Ranker 생성 실패 시 기본 방식으로 fallback
+                logger.warning(f"Flashrank Ranker 생성 실패, 기본 방식 사용: {e}")
+                compressor = FlashrankRerank(model="ms-marco-MiniLM-L-12-v2", top_n=top_n)
+            
             compressor_time = time.time() - compressor_start_time
             logger.debug(f"✓ FlashrankRerank Compressor 생성 완료 (소요 시간: {compressor_time:.2f}초)")
             

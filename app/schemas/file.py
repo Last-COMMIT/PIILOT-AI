@@ -39,6 +39,12 @@ class MaskingRequest(BaseModel):
     detected_items: Optional[List[Dict]] = []
 
 
+class FileDetectRequest(BaseModel):
+    """파일 서버 스캔(개인정보 탐지) 요청"""
+    connectionId: str
+    piiFiles: List[str]
+
+
 # ========== 응답 ==========
 
 class DetectedPersonalInfo(BaseModel):
@@ -89,3 +95,25 @@ class MaskingResponse(BaseModel):
     """마스킹 처리 응답"""
     masked_file: str
     file_type: str
+
+
+# ----- 파일 서버 스캔 응답 -----
+
+
+class PiiDetailItem(BaseModel):
+    """PII 타입별 건수 (totalCount: 탐지된 건수, maskedCount: 마스킹된 자리)"""
+    piiType: str
+    totalCount: int
+    maskedCount: int
+
+
+class FileDetectResultItem(BaseModel):
+    """파일 하나의 스캔 결과"""
+    filePath: str
+    piiDetected: bool
+    piiDetails: List[PiiDetailItem]
+
+
+class FileDetectResponse(BaseModel):
+    """파일 서버 스캔 응답"""
+    results: List[FileDetectResultItem]

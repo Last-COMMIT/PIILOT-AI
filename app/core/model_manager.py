@@ -14,6 +14,7 @@ class ModelManager:
     
     CACHE_DIR: str = None  # setup_cache_dir()에서 초기화됨
     WHISPER_CACHE_DIR: str = None  # setup_cache_dir()에서 초기화됨
+    FLASHRANK_CACHE_DIR: str = None  # setup_cache_dir()에서 초기화됨
     
     # 사용하는 모든 HuggingFace 모델 목록
     HUGGINGFACE_MODELS = {
@@ -51,13 +52,20 @@ class ModelManager:
         if cls.WHISPER_CACHE_DIR is None:
             whisper_dir = project_root / "models" / "whisper"
             cls.WHISPER_CACHE_DIR = str(whisper_dir)
+        if cls.FLASHRANK_CACHE_DIR is None:
+            flashrank_dir = project_root / "models" / "flashrank"
+            cls.FLASHRANK_CACHE_DIR = str(flashrank_dir)
         
         os.makedirs(cls.CACHE_DIR, exist_ok=True)
         os.makedirs(cls.WHISPER_CACHE_DIR, exist_ok=True)
+        os.makedirs(cls.FLASHRANK_CACHE_DIR, exist_ok=True)
         os.environ['HF_HOME'] = cls.CACHE_DIR
         os.environ['TRANSFORMERS_CACHE'] = cls.CACHE_DIR
+        # Flashrank 모델 캐시 디렉토리 환경변수 설정
+        os.environ['FLASHRANK_CACHE_DIR'] = cls.FLASHRANK_CACHE_DIR
         logger.info(f"모델 캐시 디렉토리 설정: {cls.CACHE_DIR}")
         logger.info(f"Whisper 캐시 디렉토리 설정: {cls.WHISPER_CACHE_DIR}")
+        logger.info(f"Flashrank 캐시 디렉토리 설정: {cls.FLASHRANK_CACHE_DIR}")
     
     @classmethod
     def download_huggingface_model(cls, model_name: str, model_type: str = "auto"):
@@ -183,3 +191,10 @@ class ModelManager:
         if cls.WHISPER_CACHE_DIR is None:
             cls.setup_cache_dir()
         return cls.WHISPER_CACHE_DIR
+    
+    @classmethod
+    def get_flashrank_cache_dir(cls) -> str:
+        """Flashrank 모델 캐시 디렉토리 경로 반환"""
+        if cls.FLASHRANK_CACHE_DIR is None:
+            cls.setup_cache_dir()
+        return cls.FLASHRANK_CACHE_DIR
