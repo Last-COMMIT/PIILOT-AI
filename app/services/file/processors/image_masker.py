@@ -4,6 +4,7 @@
 """
 import cv2
 import os
+import numpy as np
 from pathlib import Path
 from typing import List, Dict
 from app.core.logging import logger
@@ -14,12 +15,12 @@ from app.utils.image_utils import load_image
 class ImageMasker:
     """이미지 마스킹 처리 (얼굴 모자이크)"""
 
-    def mask_image(self, image_path: str, faces: List[Dict]) -> bytes:
+    def mask_image(self, image_path: str | bytes, faces: List[Dict]) -> bytes:
         """
         이미지 마스킹 (얼굴 블러 처리)
 
         Args:
-            image_path: 이미지 파일 경로 또는 base64 인코딩된 이미지
+            image_path: 이미지 파일 경로, base64 문자열, 또는 이미지 bytes
             faces: 얼굴 위치 리스트
 
         Returns:
@@ -27,7 +28,13 @@ class ImageMasker:
         """
         try:
             logger.info(f"이미지 마스킹: {len(faces)}개 얼굴")
-            img = load_image(image_path)
+            
+            if isinstance(image_path, bytes):
+                nparr = np.frombuffer(image_path, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            else:
+                img = load_image(image_path)
+
             if img is None:
                 logger.error(f"이미지 로드 실패: {image_path[:50]}")
                 return b""

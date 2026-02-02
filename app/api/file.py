@@ -176,8 +176,12 @@ async def apply_masking(
 
         if request.file_type == "document":
             try:
-                masked_text = masker.mask_document(request.file_data, request.detected_items)
+                # 기존 로직: 텍스트 내용(String)만 마스킹 -> Base64 반환
+                # (로컬 파일 경로 테스트 로직 제거됨)
+                detected_items = request.detected_items if request.detected_items else []
+                masked_text = masker.mask_document(request.file_data, detected_items)
                 masked_data = base64.b64encode(masked_text.encode()).decode()
+                
             except Exception as e:
                 logger.error(f"문서 마스킹 중 오류 발생: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"문서 마스킹 중 오류가 발생했습니다: {str(e)}")

@@ -8,17 +8,26 @@ from app.services.file.processors.document_masker import DocumentMasker
 from app.services.file.processors.image_masker import ImageMasker
 from app.services.file.processors.video_masker import VideoMasker
 from app.services.file.processors.audio_masker import AudioMasker
-
+from app.services.file.face_detector import YOLOFaceDetector
 
 class Masker:
     """파일 마스킹 처리 (문서, 이미지, 오디오, 비디오 통합 디스패치)"""
 
     def __init__(self, mask_char='*'):
-        self.document_masker = DocumentMasker(mask_char=mask_char)
+        # self.document_masker = DocumentMasker(mask_char=mask_char)
         self.image_masker = ImageMasker()
+        self.face_detector = YOLOFaceDetector()
+        
+        # DocumentMasker에 face_detector와 image_masker 전달
+        self.document_masker = DocumentMasker(
+            mask_char=mask_char,
+            face_detector=self.face_detector,
+            image_masker=self.image_masker
+        )
+
         self.video_masker = VideoMasker()
         self.audio_masker = AudioMasker()
-        logger.info("Masker 초기화")
+        logger.info("Masker 초기화 (얼굴 인식 모델 로드 완료)")
 
     def mask_document(self, text: str, detected_items: List[Dict]) -> str:
         """문서 텍스트 마스킹"""

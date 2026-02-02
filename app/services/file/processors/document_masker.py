@@ -4,13 +4,19 @@
 """
 from typing import List, Dict
 from app.core.logging import logger
+import fitz
+import numpy as np
+import cv2
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 
 class DocumentMasker:
     """문서 마스킹 처리"""
 
-    def __init__(self, mask_char='*'):
+    def __init__(self, mask_char='*', face_detector=None, image_masker=None):
         self.mask_char = mask_char
+        self.face_detector = face_detector
+        self.image_masker = image_masker
 
     def mask_text(self, text: str, entities: List[Dict]) -> str:
         """텍스트의 PII를 마스킹"""
@@ -62,9 +68,66 @@ class DocumentMasker:
                         page.draw_rect(fallback_rect, color=(0, 0, 0), fill=(0, 0, 0))
                     except Exception as e:
                         logger.warning(f"Fallback masking failed: {e}")
+
+        # 2. 이미지 마스킹 (얼굴 비식별화)
+        if self.face_detector and self.image_masker:
+            try:
+                self._mask_pdf_images(doc)
+            except Exception as e:
+                logger.error(f"PDF 이미지 마스킹 중 오류 발생: {e}")
+
         doc.save(output_path)
         doc.close()
         logger.info(f"PDF 저장: {output_path}")
+
+    def _mask_pdf_images(self, doc):
+        """PDF 내 이미지 추출 및 얼굴 마스킹"""
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            image_list = page.get_images()
+            
+            for img_info in image_list:
+                xref = img_info[0]
+                try:
+                    # 이미지 추출
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    
+                    # 얼굴 감지
+                    nparr = np.frombuffer(image_bytes, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    
+                    if img is None:
+                        continue
+                        
+                    faces = self.face_detector.detect(img)
+                    
+                    if faces:
+                        logger.info(f"PDF 이미지(xref={xref})에서 {len(faces)}개 얼굴 감지됨")
+                        
+                        # YOLO 결과 변환 (List -> List[Dict])
+                        faces_dict = []
+                        for face in faces:
+                            # YOLO format: [x1, y1, x2, y2, conf]
+                            if isinstance(face, list) or isinstance(face, np.ndarray):
+                                x1, y1, x2, y2 = map(int, face[:4])
+                                faces_dict.append({
+                                    "x": x1,
+                                    "y": y1,
+                                    "width": x2 - x1,
+                                    "height": y2 - y1
+                                })
+                        
+                        # 마스킹 수행
+                        masked_bytes = self.image_masker.mask_image(image_bytes, faces_dict)
+                        
+                        if masked_bytes:
+                            # 이미지 교체
+                            page.replace_image(xref, stream=masked_bytes)
+                except Exception as e:
+                    logger.warning(f"PDF 이미지(xref={xref}) 처리 중 오류: {e}")
+                    continue
 
     def mask_docx(self, docx_path: str, paragraphs: List[Dict],
                   entities_per_para: List[List[Dict]], output_path: str):
@@ -100,8 +163,61 @@ class DocumentMasker:
             except Exception as e:
                 logger.warning(f"마스킹 중 오류 발생: {e}")
                 continue
+
+        # 2. 이미지 마스킹 (얼굴 비식별화)
+        if self.face_detector and self.image_masker:
+            try:
+                self._mask_docx_images(doc)
+            except Exception as e:
+                logger.error(f"DOCX 이미지 마스킹 중 오류 발생: {e}")
+
         doc.save(output_path)
         logger.info(f"DOCX 저장: {output_path}")
+
+    def _mask_docx_images(self, doc):
+        """DOCX 내 이미지 추출 및 얼굴 마스킹"""
+        
+        # doc.part.rels를 순회하여 이미지 파트 찾기
+        for rel in doc.part.rels.values():
+            if "image" in rel.target_ref:
+                try:
+                    image_part = rel.target_part
+                    image_bytes = image_part.blob
+                    
+                    # 얼굴 감지
+                    nparr = np.frombuffer(image_bytes, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    
+                    if img is None:
+                        continue
+                        
+                    faces = self.face_detector.detect(img)
+                    
+                    if faces:
+                        logger.info(f"DOCX 이미지에서 {len(faces)}개 얼굴 감지됨")
+                        
+                        # YOLO 결과 변환 (List -> List[Dict])
+                        faces_dict = []
+                        for face in faces:
+                            # YOLO format: [x1, y1, x2, y2, conf]
+                            if isinstance(face, list) or isinstance(face, np.ndarray):
+                                x1, y1, x2, y2 = map(int, face[:4])
+                                faces_dict.append({
+                                    "x": x1,
+                                    "y": y1,
+                                    "width": x2 - x1,
+                                    "height": y2 - y1
+                                })
+                                
+                        # 마스킹 수행
+                        masked_bytes = self.image_masker.mask_image(image_bytes, faces_dict)
+                        
+                        if masked_bytes:
+                            # 이미지 교체 (private blob 직접 수정)
+                            image_part._blob = masked_bytes
+                except Exception as e:
+                    logger.warning(f"DOCX 이미지 처리 중 오류: {e}")
+                    continue
 
     def mask_txt(self, txt_path: str, lines: List[Dict],
                  entities_per_line: List[List[Dict]], output_path: str):
