@@ -34,6 +34,10 @@ class PIIColumnDetectRequest(BaseModel):
     """PII 컬럼 탐지 요청"""
     tables: List[TableColumns]
 
+class ColumnDictionaryUploadRequest(BaseModel):
+    """DB 단어사전 업로드 요청"""
+    file_path: str
+
 
 # ========== 응답 ==========
 
@@ -74,3 +78,8 @@ class EncryptionCheckResult(BaseModel):
 class EncryptionCheckResponse(BaseModel):
     """암호화 여부 확인 응답"""
     results: List[EncryptionCheckResult]
+
+
+class ColumnDictionaryUploadResponse(BaseModel):
+    """DB 단어사전 업로드 응답"""
+    status: str

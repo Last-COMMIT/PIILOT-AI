@@ -12,8 +12,10 @@ from app.schemas.db import (
     PIIColumnDetectRequest,
     PIIColumnDetectResponse,
     PIIColumnResult,
+    ColumnDictionaryUploadRequest,
+    ColumnDictionaryUploadResponse,
 )
-from app.api.deps import get_column_detector, get_encryption_classifier, get_pii_column_classifier
+from app.api.deps import get_column_detector, get_encryption_classifier, get_pii_column_classifier, get_column_dictionary_upload
 from app.core.logging import logger
 
 router = APIRouter()
@@ -89,3 +91,28 @@ async def detect_pii_columns(
     pii_columns = [PIIColumnResult(**r) for r in pii_results]
 
     return PIIColumnDetectResponse(piiColumns=pii_columns)
+
+@router.post("/upload-column-dictionary", response_model=ColumnDictionaryUploadResponse)
+async def upload_column_dictionary(request: ColumnDictionaryUploadRequest):
+    """DB 단어사전 파일을 벡터DB에 저장"""
+    logger.info(f"DB 단어사전 PDF 처리 요청: {request.file_path}")
+
+    try:
+        processor = get_column_dictionary_upload()
+        documents = processor(request.file_path)
+
+        if not documents:
+            logger.warning(f"생성된 문서가 없음: {request.file_path}")
+            return ColumnDictionaryUploadResponse(
+                status="처리할 데이터가 없습니다."
+            )
+        logger.info(f"DB 단어사전 처리 완료: {len(documents)}개 문서 저장")
+        return ColumnDictionaryUploadResponse(
+            status=f"DB 단어사전이 성공적으로 벡터 DB에 저장되었습니다. (총 {len(documents)}개)"
+        )
+    
+    except Exception as e:
+        logger.error(f"DB 단어사전 처리 중 오류 발생: {str(e)}", exc_info=True)
+        return ColumnDictionaryUploadResponse(
+            status=f"DB 단어사전 처리 중 오류가 발생했습니다: {str(e)}"
+        )
