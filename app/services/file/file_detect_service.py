@@ -15,6 +15,7 @@ from app.services.file.pii_slot_analyzer import (
     PII_TYPE_NAME_TO_CODE,
     PII_LABEL_TO_CODE,
 )
+from app.services.file.video_pii_dedup import dedup_video_faces, dedup_video_text_regions
 from app.core.logging import logger
 
 # 확장자 -> 미디어 타입 (document / image / audio / video)
@@ -70,8 +71,10 @@ def _aggregate_pii_details(
     audio_detected: List[Dict] = None,
     video_result: Dict = None,
     document_masked: Dict[str, int] = None,
+    video_face_count: int = None,
+    video_text_pii_by_label: Dict[str, int] = None,
 ) -> List[Dict[str, Any]]:
-    """탐지 결과를 piiDetails 형태로 집계 (piiType, totalCount, maskedCount)"""
+    """탐지 결과를 piiDetails 형태로 집계 (piiType, totalCount, maskedCount). 영상은 트랙 단위 dedup 적용 시 video_face_count, video_text_pii_by_label 전달."""
     total_by_code: Dict[str, int] = {}
     masked_by_code: Dict[str, int] = dict(document_masked or {})
 
@@ -91,16 +94,26 @@ def _aggregate_pii_details(
         faces = video_result.get("faces", [])
         audio_items = video_result.get("personal_info_in_audio", [])
         text_regions = video_result.get("text_pii_regions", [])
-        if faces:
+        if video_face_count is not None:
+            if video_face_count > 0:
+                total_by_code["FACE"] = total_by_code.get("FACE", 0) + video_face_count
+        elif faces:
             total_by_code["FACE"] = total_by_code.get("FACE", 0) + len(faces)
         for item in audio_items:
             t = item.get("type") or ""
             code = PII_TYPE_NAME_TO_CODE.get(t) or t
             total_by_code[code] = total_by_code.get(code, 0) + 1
-        for r in text_regions:
-            label = r.get("label", "p_nm")
-            code = PII_LABEL_TO_CODE.get(label) or PII_TYPE_NAME_TO_CODE.get(label) or label
-            total_by_code[code] = total_by_code.get(code, 0) + 1
+        if video_text_pii_by_label:
+            for label, count in video_text_pii_by_label.items():
+                if count <= 0:
+                    continue
+                code = PII_LABEL_TO_CODE.get(label) or PII_TYPE_NAME_TO_CODE.get(label) or label
+                total_by_code[code] = total_by_code.get(code, 0) + count
+        else:
+            for r in text_regions:
+                label = r.get("label", "p_nm")
+                code = PII_LABEL_TO_CODE.get(label) or PII_TYPE_NAME_TO_CODE.get(label) or label
+                total_by_code[code] = total_by_code.get(code, 0) + 1
 
     all_codes = set(total_by_code) | set(masked_by_code)
     return [
@@ -206,8 +219,14 @@ def scan_files(
             faces = video_result.get("faces", [])
             audio_items = video_result.get("personal_info_in_audio", [])
             text_regions = video_result.get("text_pii_regions", [])
-            has_pii = len(faces) > 0 or len(audio_items) > 0 or len(text_regions) > 0
-            pii_details = _aggregate_pii_details(video_result=video_result)
+            unique_face_count = dedup_video_faces(faces)
+            text_pii_by_label = dedup_video_text_regions(text_regions)
+            has_pii = unique_face_count > 0 or len(audio_items) > 0 or sum(text_pii_by_label.values()) > 0
+            pii_details = _aggregate_pii_details(
+                video_result=video_result,
+                video_face_count=unique_face_count,
+                video_text_pii_by_label=text_pii_by_label,
+            )
             results.append({
                 "filePath": file_path_display,
                 "piiDetected": has_pii,
