@@ -14,6 +14,8 @@ from app.schemas.file import (
     VideoDetectionResponse,
     MaskingRequest,
     MaskingResponse,
+    FileDetectRequest,
+    FileDetectResponse,
 )
 from app.api.deps import (
     get_document_detector,
@@ -25,6 +27,33 @@ from app.api.deps import (
 from app.core.logging import logger
 
 router = APIRouter()
+
+
+@router.post("/scan", response_model=FileDetectResponse)
+async def file_server_detect(
+    request: FileDetectRequest,
+    document_detector=Depends(get_document_detector),
+    image_detector=Depends(get_image_detector),
+    audio_detector=Depends(get_audio_detector),
+    video_detector=Depends(get_video_detector),
+):
+    """파일 서버 스캔: connectionId + piiFiles 경로로 파일 다운로드 후 개인정보 탐지"""
+    try:
+        from app.services.file.file_detect_service import scan_files
+        results = scan_files(
+            connection_id=request.connectionId,
+            pii_files=request.piiFiles,
+            document_detector=document_detector,
+            image_detector=image_detector,
+            audio_detector=audio_detector,
+            video_detector=video_detector,
+        )
+        return FileDetectResponse(results=results)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error("파일 서버 스캔 오류: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/document/detect", response_model=DocumentDetectionResponse)
