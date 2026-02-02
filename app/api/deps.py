@@ -90,3 +90,9 @@ def get_regulation_upload():
     from scripts.setup_vector_db import law_pdf_to_vector
     logger.info("법령 PDF 업로드 의존성 생성")
     return law_pdf_to_vector
+
+def get_column_dictionary_upload():
+    """DB 단어사전 PDF 업로드 의존성"""
+    from app.services.db.column_dictionary_vector_embedding import column_dictionary_to_vector
+    logger.info("DB 단어사전 PDF 업로드 의존성 생성")
+    return column_dictionary_to_vector

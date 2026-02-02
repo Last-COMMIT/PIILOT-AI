@@ -1,6 +1,8 @@
 import re
 import sys
 from pathlib import Path
+from app.core.logging import logger
+from app.core.config import settings
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_core.documents import Document
 from typing import List, Dict
@@ -24,15 +26,10 @@ _project_root = _find_project_root()
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from app.core.logging import logger
-
 # DB 연결 (기존 방식 사용)
 from app.crud.db_connect import get_connection
 from urllib.parse import urlparse
-# 프로젝트 루트 경로 (config에서 가져오기)
-from app.core.config import get_project_root, settings
-BASE_DIR = get_project_root()
-PDF_PATH = BASE_DIR / "input_file" / "documents" / "LASTCOMMIT_데이터베이스_표준단어사전.pdf"
+
 
 """
 PDF 표에서 메타데이터 자동 추출
@@ -47,20 +44,20 @@ PDF 표에서 메타데이터 자동 추출
 """
 
 # 텍스트 추출
-def load_pdf_lines(pdf_path: Path) -> List[str]:
+def load_pdf_lines(file_path: Path) -> List[str]:
     """
     PDF에서 줄 단위로 직접 추출
     
     Args:
-        pdf_path: PDF 파일 경로
+        file_path: PDF 파일 경로
         
     Returns:
         List[str]: 줄 단위 리스트
     """
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+    if not file_path.exists():
+        raise FileNotFoundError(f"PDF not found: {file_path}")
     
-    loader = PyMuPDFLoader(str(pdf_path))
+    loader = PyMuPDFLoader(str(file_path))
     docs = loader.load()
     
     # 각 페이지의 줄들을 바로 리스트로 추가
@@ -350,11 +347,14 @@ def insert_to_database(documents: List[Document], embeddings: Tensor, batch_size
     finally:
         conn.close()
 
-def main():
+def column_dictionary_to_vector(file_path: str):
     """메인 실행 함수"""
-    
+
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
+
     # 1. PDF 줄 단위 추출
-    lines = load_pdf_lines(PDF_PATH)
+    lines = load_pdf_lines(file_path)
     logger.info(f"텍스트 추출 완료 (총 {len(lines):,} 줄)")
     
     # 2. 메타데이터 추출
@@ -400,7 +400,5 @@ def main():
     )
     logger.info("VectorDB 저장 완료!")
     
-    return documents
 
-if __name__ == "__main__":
-    main()
+    return documents

@@ -34,6 +34,10 @@ class PIIColumnDetectRequest(BaseModel):
     """PII 컬럼 탐지 요청"""
     tables: List[TableColumns]
 
+class ColumnDictionaryUploadRequest(BaseModel):
+    """DB 단어사전 업로드 요청"""
+    file_path: str
+
 
 # ========== 응답 ==========
 
@@ -76,6 +80,9 @@ class EncryptionCheckResponse(BaseModel):
     results: List[EncryptionCheckResult]
 
 
+class ColumnDictionaryUploadResponse(BaseModel):
+    """DB 단어사전 업로드 응답"""
+    status: str
 class SupportedDbmsItem(BaseModel):
     """지원 DBMS 항목 (connection 등록 시 dbms_type_id 참고용)"""
     id: str
