@@ -126,6 +126,9 @@ class VideoDetector:
                     if not ret:
                         break
                     frame_count += 1
+                    # 홀수 프레임(1, 3, 5, ...)에서만 얼굴 탐지 (성능 절반 절감)
+                    if frame_count % 2 == 0:
+                        continue
                     detections = face_detector.detect(frame, conf_threshold=0.25)
                     for bbox in detections:
                         x1, y1, x2, y2, conf = bbox
