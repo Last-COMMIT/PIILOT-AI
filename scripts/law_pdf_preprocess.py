@@ -7,6 +7,7 @@ import os
 from collections import Counter, defaultdict
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
+from app.utils.logger import logger
 
 # 프로젝트 경로 (로컬)
 from pathlib import Path
@@ -400,6 +401,98 @@ def extract_metadata_from_pdf(file_path: str, fixed_pages: List[Dict[str, Any]])
     
     return metadata
 
+def fixed_length_chunking(
+    fixed_pages: List[Dict[str, Any]],
+    document_title: str,
+    law_name: str,
+    effective_date: Optional[str],
+    chunk_size: int = 800,
+    overlap: int = 150
+) -> List[Dict[str, Any]]:
+    chunks = []
+    
+    # 모든 페이지 텍스트 합치기
+    full_text = ""
+    page_boundaries = []
+    
+    for page_obj in fixed_pages:
+        page_boundaries.append((len(full_text), page_obj["page"]))
+        full_text += page_obj["text"] + "\n\n"
+    
+    full_text = full_text.strip()  # ✅ 바로 strip
+    
+    if not full_text:
+        logger.warning("텍스트가 비어있음!")
+        return chunks
+    
+    # 고정 길이로 분할
+    start = 0
+    chunk_id = 1
+    
+    while start < len(full_text):
+        end = start + chunk_size
+        
+        # ✅ end가 텍스트 끝을 넘으면 조정
+        if end > len(full_text):
+            end = len(full_text)
+        
+        chunk_text = full_text[start:end]
+        actual_end = end
+        
+        # 문장 중간에서 자르지 않도록 조정
+        if end < len(full_text):  # ✅ 끝이 아닐 때만
+            extended_end = min(end + 100, len(full_text))
+            remaining = full_text[end:extended_end]
+            
+            sentence_ends = []
+            for char in ['.', '。', '\n', '!', '?']:
+                pos = remaining.find(char)
+                if pos != -1:
+                    sentence_ends.append(pos)
+            
+            if sentence_ends:
+                extend_by = min(sentence_ends) + 1
+                actual_end = end + extend_by
+                # ✅ actual_end도 전체 길이 넘지 않도록
+                if actual_end > len(full_text):
+                    actual_end = len(full_text)
+                chunk_text = full_text[start:actual_end]
+        
+        chunk_text = chunk_text.strip()
+        
+        if not chunk_text or len(chunk_text) < 50:
+            start += chunk_size
+            continue
+        
+        # 청크가 속한 페이지 찾기
+        page_no = 1
+        for boundary_pos, boundary_page in reversed(page_boundaries):
+            if start >= boundary_pos:
+                page_no = boundary_page
+                break
+        
+        chunks.append({
+            "chunk_text": chunk_text,
+            "metadata": {
+                "document_title": document_title,
+                "law_name": law_name,
+                "article": f"청크 {chunk_id}",  # 조 대신 청크 id
+                "page": page_no,
+                "effective_date": effective_date,
+            }
+        })
+        
+        # 다음 시작 위치
+        next_start = actual_end - overlap
+        
+        if next_start <= start:
+            next_start = actual_end
+        
+        start = next_start
+        chunk_id += 1
+
+    return chunks
+
 
 def build_chunks_with_metadata(
     fixed_pages: List[Dict[str, Any]],
@@ -618,4 +711,17 @@ def build_chunks_with_metadata(
             buf_lines.append(line)
 
     flush()
+
+    # 페이지 대비 청크 밀도가 낮으면 고정 길이 청킹
+    pages_count = len(fixed_pages)
+    chunks_per_page = len(chunks) / pages_count if pages_count > 0 else 0
+
+    if chunks_per_page < 0.5:  # 페이지당 0.5개 미만
+        chunks = fixed_length_chunking(
+            fixed_pages=fixed_pages,
+            document_title=document_title,
+            law_name=law_name,
+            effective_date=effective_date
+        )
+
     return chunks
