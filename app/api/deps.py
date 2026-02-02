@@ -57,6 +57,15 @@ def get_masker():
 
 
 @lru_cache
+def get_document_file_processor():
+    """PDF/DOCX/TXT 파일 단위 탐지·마스킹용 (process_file)"""
+    from app.services.file.document_detector import DocumentDetector as DocumentFileProcessor
+    from app.core.config import MODEL_PATH
+    logger.info("DocumentFileProcessor 의존성 생성")
+    return DocumentFileProcessor(model_path=MODEL_PATH)
+
+
+@lru_cache
 def get_assistant():
     from app.services.chat.assistant_service import AIAssistant
     logger.info("AIAssistant 의존성 생성")

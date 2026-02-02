@@ -11,7 +11,7 @@ from app.utils.db_connect import create_db_engine
 from app.core.logging import logger
 
 _engine = None
-_connection_cache: Dict[str, Dict[str, Any]] = {}
+_connection_cache: Dict[int, Dict[str, Any]] = {}
 
 
 def _get_main_engine():
@@ -32,7 +32,7 @@ def _get_main_engine():
     return _engine
 
 
-def get_file_server_connection(connection_id: str) -> Dict[str, Any]:
+def get_file_server_connection(connection_id: int) -> Dict[str, Any]:
     """
     메인 DB에서 파일 서버 연결 정보 조회 (비밀번호 복호화 포함)
 
