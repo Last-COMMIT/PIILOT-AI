@@ -45,9 +45,12 @@ class Masker:
         return self.audio_masker.mask_audio(audio_data, detected_items)
 
     def mask_video(self, video_path: str, faces: list, audio_items: list,
-                   save_path: str = None) -> bytes:
-        """영상 마스킹"""
-        return self.video_masker.mask_video(video_path, faces, audio_items, save_path)
+                   save_path: str = None, text_pii_regions: list = None) -> bytes:
+        """영상 마스킹 (얼굴 + 화면 텍스트 PII + 오디오)"""
+        return self.video_masker.mask_video(
+            video_path, faces, audio_items, save_path,
+            text_pii_regions=text_pii_regions or [],
+        )
 
     # 하위 호환성: 기존 masker.py 인터페이스
     def mask_pdf(self, *args, **kwargs):

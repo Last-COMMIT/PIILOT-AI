@@ -14,11 +14,26 @@ from app.schemas.db import (
     PIIColumnResult,
     ColumnDictionaryUploadRequest,
     ColumnDictionaryUploadResponse,
+    SupportedDbmsItem,
+    SupportedDbmsResponse,
 )
 from app.api.deps import get_column_detector, get_encryption_classifier, get_pii_column_classifier, get_column_dictionary_upload
 from app.core.logging import logger
 
 router = APIRouter()
+
+# 암호화 확인 등에서 접속 가능한 DBMS 목록 (dbms_types.name과 매칭 시 참고)
+SUPPORTED_DBMS_LIST = [
+    SupportedDbmsItem(id="postgresql", name="PostgreSQL"),
+    SupportedDbmsItem(id="mysql", name="MySQL"),
+    SupportedDbmsItem(id="oracle", name="Oracle"),
+]
+
+
+@router.get("/supported-dbms", response_model=SupportedDbmsResponse)
+async def get_supported_dbms():
+    """접속 가능한 DBMS 목록 (connection 등록 시 dbms_type_id 참고용)"""
+    return SupportedDbmsResponse(dbms_list=SUPPORTED_DBMS_LIST)
 
 
 @router.post("/detect-columns", response_model=ColumnDetectionResponse)

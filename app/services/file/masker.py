@@ -104,16 +104,17 @@ class Masker:
             logger.error(f"음성 마스킹 중 오류 발생: {str(e)}")
             raise e
     
-    def mask_video(self, video_path: str, faces: list, audio_items: list, 
-                   save_path: str = None) -> bytes:
+    def mask_video(self, video_path: str, faces: list, audio_items: list,
+                   save_path: str = None, text_pii_regions: list = None) -> bytes:
         """
-        영상 마스킹 (얼굴 모자이크 + 오디오 마스킹)
+        영상 마스킹 (얼굴 모자이크 + 화면 텍스트 PII 블러 + 오디오 마스킹)
         
         Args:
             video_path: 비디오 파일 경로 또는 base64 인코딩된 비디오
             faces: 얼굴 위치 리스트 (사용하지 않음 - 자동 감지 사용)
             audio_items: 오디오 개인정보 항목 리스트
-            save_path: 마스킹된 비디오를 저장할 경로 (None이면 프로젝트 루트의 tests 폴더에 저장)
+            save_path: 마스킹된 비디오를 저장할 경로 (None이면 VIDEO_OUTPUT_DIR에 저장)
+            text_pii_regions: 화면 텍스트 PII 영역 [{frame_number, x, y, width, height}, ...]
             
         Returns:
             마스킹된 비디오 (bytes)
@@ -127,7 +128,8 @@ class Masker:
         from app.services.file.blur_censor import BlurCensor
         from app.services.file.video_processor import VideoProcessorEnhanced
         
-        logger.info(f"영상 마스킹 시작: {len(faces)}개 얼굴 정보, {len(audio_items)}개 오디오 항목")
+        text_pii_regions = text_pii_regions or []
+        logger.info(f"영상 마스킹 시작: {len(faces)}개 얼굴, {len(audio_items)}개 오디오, {len(text_pii_regions)}개 화면 텍스트 PII")
         
         # 비디오 파일 경로 처리 (base64 또는 파일 경로)
         input_video_path = None
@@ -188,9 +190,29 @@ class Masker:
                 use_kalman=True
             )
             
-            # 비디오 처리 (얼굴 블러 적용)
-            logger.info("비디오 얼굴 마스킹 처리 중...")
-            processor.process_video(input_video_path, output_video_path, conf_thresh=0.25)
+            # 화면 텍스트 PII 영역을 프레임별 dict로 변환 (키프레임 전후 확장 적용)
+            from app.core.config import settings
+            extend_half = max(1, getattr(settings, "VIDEO_TEXT_PII_EXTEND_HALF", 25))
+            text_pii_by_frame = {}
+            for r in text_pii_regions:
+                fn = r.get("frame_number")
+                if fn is None:
+                    continue
+                x, y = int(r.get("x", 0)), int(r.get("y", 0))
+                w, h = int(r.get("width", 0)), int(r.get("height", 0))
+                if w <= 0 or h <= 0:
+                    continue
+                bbox = (x, y, x + w, y + h)
+                for f in range(max(1, fn - extend_half), fn + extend_half + 1):
+                    text_pii_by_frame.setdefault(f, []).append(bbox)
+            # 비디오 처리 (얼굴 블러 + 화면 텍스트 PII 블러)
+            logger.info("비디오 얼굴·화면 텍스트 PII 마스킹 처리 중...")
+            processor.process_video(
+                input_video_path,
+                output_video_path,
+                conf_thresh=0.25,
+                text_pii_regions_by_frame=text_pii_by_frame,
+            )
             
             # 오디오 처리 (추출 → 마스킹 → 합성)
             final_video_path = output_video_path

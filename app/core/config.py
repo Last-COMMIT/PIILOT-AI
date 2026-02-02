@@ -49,6 +49,11 @@ class Settings(BaseSettings):
 
     # --- PII Detector Settings ---
     PII_MODEL_PATH: str = "ParkJunSeong/PIILOT_NER_Model"
+
+    # --- 영상 화면 텍스트 PII (OCR) ---
+    VIDEO_KEYFRAME_INTERVAL: int = 20  # N프레임마다 OCR (작을수록 탐지 밀도↑, 비용↑)
+    VIDEO_TEXT_PII_PADDING_PX: int = 4   # 텍스트 bbox 주변 패딩(px), 0이면 OCR bbox 그대로 (범위 작게)
+    VIDEO_TEXT_PII_EXTEND_HALF: int = 25  # 키프레임 기준 전후 N프레임까지 동일 영역 적용 (겹침으로 끊김 방지)
     
     # Output Directories (모든 출력 파일 경로 통일)
     OUTPUT_BASE_DIR: str = "./output_file"
