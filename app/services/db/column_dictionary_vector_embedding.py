@@ -310,7 +310,7 @@ def insert_to_database(documents: List[Document], embeddings: Tensor, batch_size
     )
     
     insert_query = """
-        INSERT INTO test_api_pii_standard_words (
+        INSERT INTO pii_standard_words (
             chunk_text,
             embedding,
             abbr,
@@ -400,4 +400,5 @@ def column_dictionary_to_vector(file_path: str):
     )
     logger.info("VectorDB 저장 완료!")
     
+
     return documents
