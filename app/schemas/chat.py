@@ -56,9 +56,6 @@ class LangGraphChatResponse(BaseModel):
     """LangGraph 챗봇 응답"""
     answer: str
     sources: List[str] = []
-    query_type: str = "general"
-    relevance_score: Optional[float] = None
-    hallucination_score: Optional[float] = None
 
 class RegulationUploadResponse(BaseModel):
     """법령 PDF 업로드 응답"""

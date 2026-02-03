@@ -2,6 +2,8 @@
 FastAPI 의존성 주입 (Depends)
 서비스 인스턴스를 싱글톤으로 관리
 """
+import sys
+from pathlib import Path
 from functools import lru_cache
 from app.core.logging import logger
 
@@ -96,6 +98,9 @@ def get_langgraph_chatbot():
 
 def get_regulation_upload():
     """법령 PDF 업로드 의존성"""
+    # scripts를 찾을 수 있도록 프로젝트 루트를 sys.path 맨 앞에 항상 추가
+    project_root = Path(__file__).resolve().parent.parent.parent
+    sys.path.insert(0, str(project_root))
     from scripts.setup_vector_db import law_pdf_to_vector
     logger.info("법령 PDF 업로드 의존성 생성")
     return law_pdf_to_vector
