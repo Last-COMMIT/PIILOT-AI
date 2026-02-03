@@ -9,7 +9,8 @@ from app.ml.pii_detectors.hybrid_detector import HybridPIIDetector
 from app.services.file.processors.document_masker import DocumentMasker
 from app.services.file.face_detector import YOLOFaceDetector
 from app.services.file.processors.image_masker import ImageMasker
-from app.config import PII_NAMES, OUTPUT_DIR
+from app.core.config import OUTPUT_DIR  # output_file/documents (다른 출력과 동일하게)
+from app.core.constants import PII_NAMES
 from app.core.logging import logger
 
 class DocumentDetector():

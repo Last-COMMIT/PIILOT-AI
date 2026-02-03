@@ -2,7 +2,6 @@
 파일 관련 AI 처리 API
 """
 from fastapi import APIRouter, HTTPException, Depends
-import base64
 from app.schemas.file import (
     DocumentDetectionRequest,
     DocumentDetectionResponse,
@@ -12,13 +11,14 @@ from app.schemas.file import (
     AudioDetectionResponse,
     VideoDetectionRequest,
     VideoDetectionResponse,
-    MaskingRequest,
-    MaskingResponse,
     FileDetectRequest,
     FileDetectResponse,
+    FileMaskRequest,
+    FileMaskResponse,
 )
 from app.api.deps import (
     get_document_detector,
+    get_document_file_processor,
     get_image_detector,
     get_audio_detector,
     get_video_detector,
@@ -162,153 +162,33 @@ async def detect_video_personal_info(
         )
 
 
-@router.post("/mask", response_model=MaskingResponse)
+@router.post("/mask", response_model=FileMaskResponse)
 async def apply_masking(
-    request: MaskingRequest,
+    request: FileMaskRequest,
+    document_file_processor=Depends(get_document_file_processor),
+    image_detector=Depends(get_image_detector),
+    audio_detector=Depends(get_audio_detector),
+    video_detector=Depends(get_video_detector),
     masker=Depends(get_masker),
 ):
-    """마스킹 처리"""
+    """파일 서버 마스킹: connectionId + filePath + fileCategory → 마스킹 결과 base64. 로컬(SAVE_MASKED_OUTPUT=True)이면 output_file에 저장."""
     try:
-        detected_items_count = len(request.detected_items) if request.detected_items else 0
-        logger.info(f"마스킹 요청: 타입={request.file_type}, 포맷={request.file_format}, 항목 수={detected_items_count}")
-
-        masked_data = None
-
-        if request.file_type == "document":
-            try:
-                # 기존 로직: 텍스트 내용(String)만 마스킹 -> Base64 반환
-                # (로컬 파일 경로 테스트 로직 제거됨)
-                detected_items = request.detected_items if request.detected_items else []
-                masked_text = masker.mask_document(request.file_data, detected_items)
-                masked_data = base64.b64encode(masked_text.encode()).decode()
-                
-            except Exception as e:
-                logger.error(f"문서 마스킹 중 오류 발생: {str(e)}", exc_info=True)
-                raise HTTPException(status_code=500, detail=f"문서 마스킹 중 오류가 발생했습니다: {str(e)}")
-
-        elif request.file_type == "image":
-            try:
-                # 이미지 타입일 때만 ImageDetector 필요
-                if not request.detected_items:
-                    logger.info("이미지 detected_items가 비어있어 자동 탐지를 수행합니다.")
-                    from app.api.deps import get_image_detector
-                    image_detector = get_image_detector()
-                    detected_faces = image_detector.detect_faces(request.file_data)
-                    logger.info(f"자동 탐지 완료: {len(detected_faces)}개 얼굴 발견")
-                else:
-                    detected_faces = request.detected_items
-                    logger.info(f"제공된 detected_items 사용: {len(detected_faces)}개 항목")
-
-                if detected_faces:
-                    logger.info(f"{len(detected_faces)}개의 얼굴 탐지됨, 마스킹 처리 시작")
-                    masked_bytes = masker.mask_image(request.file_data, detected_faces)
-                    if masked_bytes:
-                        masked_data = base64.b64encode(masked_bytes).decode()
-                    else:
-                        logger.warning("마스킹된 이미지가 비어있어 원본 이미지 반환")
-                        from app.utils.base64_utils import get_original_image_base64
-                        masked_data = get_original_image_base64(request.file_data, request.file_format)
-                else:
-                    logger.info("얼굴이 탐지되지 않음, 원본 이미지 반환")
-                    # 원본 이미지를 base64로 반환
-                    from app.utils.base64_utils import get_original_image_base64
-                    masked_data = get_original_image_base64(request.file_data, request.file_format)
-            except Exception as e:
-                logger.error(f"이미지 마스킹 중 오류 발생: {str(e)}", exc_info=True)
-                # 원본 이미지 반환 시도
-                try:
-                    from app.utils.base64_utils import get_original_image_base64
-                    masked_data = get_original_image_base64(request.file_data, request.file_format)
-                    logger.warning("마스킹 실패로 원본 이미지 반환")
-                except:
-                    raise HTTPException(status_code=500, detail=f"이미지 마스킹 중 오류가 발생했습니다: {str(e)}")
-
-        elif request.file_type == "audio":
-            try:
-                # 오디오 타입일 때만 AudioDetector 필요
-                if not request.detected_items:
-                    logger.info("오디오 detected_items가 비어있어 자동 탐지를 수행합니다.")
-                    from app.api.deps import get_audio_detector
-                    audio_detector = get_audio_detector()
-                    # file_format 사용
-                    detected_items = audio_detector.detect(request.file_data, request.file_format)
-                    logger.info(f"자동 탐지 완료: {len(detected_items)}개 항목 발견")
-                else:
-                    detected_items = request.detected_items
-                    logger.info(f"제공된 detected_items 사용: {len(detected_items)}개 항목")
-
-                # file_format에 따라 처리
-                if request.file_format == "base64":
-                    # base64 디코딩하여 bytes로 변환
-                    from app.utils.base64_utils import decode_base64_data
-                    audio_input = decode_base64_data(request.file_data)
-                else:  # "path"
-                    # 파일 경로 그대로 사용
-                    import os
-                    if not os.path.exists(request.file_data):
-                        raise FileNotFoundError(f"오디오 파일을 찾을 수 없습니다: {request.file_data}")
-                    audio_input = request.file_data
-
-                masked_bytes = masker.mask_audio(audio_input, detected_items)
-                if masked_bytes:
-                    masked_data = base64.b64encode(masked_bytes).decode()
-                else:
-                    raise ValueError("오디오 마스킹 결과가 비어있습니다.")
-            except Exception as e:
-                logger.error(f"오디오 마스킹 중 오류 발생: {str(e)}", exc_info=True)
-                raise HTTPException(status_code=500, detail=f"오디오 마스킹 중 오류가 발생했습니다: {str(e)}")
-
-        elif request.file_type == "video":
-            try:
-                # 비디오 타입일 때만 VideoDetector 필요
-                if not request.detected_items:
-                    logger.info("비디오 detected_items가 비어있어 자동 탐지를 수행합니다.")
-                    from app.api.deps import get_video_detector
-                    video_detector = get_video_detector()
-                    # file_format 사용
-                    detection_result = video_detector.detect(request.file_data, request.file_format)
-                    faces = detection_result.get("faces", [])
-                    audio_items = detection_result.get("personal_info_in_audio", [])
-                    text_pii_regions = detection_result.get("text_pii_regions", [])
-                    logger.info(
-                        f"자동 탐지 완료: 얼굴 {len(faces)}개, 오디오 {len(audio_items)}개, 화면 텍스트 PII {len(text_pii_regions)}개"
-                    )
-                else:
-                    faces = [item for item in request.detected_items if "x" in item]
-                    audio_items = [item for item in request.detected_items if "start_time" in item]
-                    text_pii_regions = [item for item in request.detected_items if "frame_number" in item and "width" in item]
-                    logger.info(
-                        f"제공된 detected_items 사용: 얼굴 {len(faces)}개, 오디오 {len(audio_items)}개, 화면 텍스트 PII {len(text_pii_regions)}개"
-                    )
-
-                # mask_video에 화면 텍스트 PII 영역 전달
-                masked_bytes = masker.mask_video(
-                    request.file_data, faces, audio_items, text_pii_regions=text_pii_regions
-                )
-                if masked_bytes:
-                    masked_data = base64.b64encode(masked_bytes).decode()
-                else:
-                    raise ValueError("비디오 마스킹 결과가 비어있습니다.")
-            except Exception as e:
-                logger.error(f"비디오 마스킹 중 오류 발생: {str(e)}", exc_info=True)
-                raise HTTPException(status_code=500, detail=f"비디오 마스킹 중 오류가 발생했습니다: {str(e)}")
-
-        else:
-            raise HTTPException(status_code=400, detail=f"지원하지 않는 파일 타입: {request.file_type}")
-
-        if masked_data is None:
-            raise ValueError("마스킹 결과가 생성되지 않았습니다.")
-
-        return MaskingResponse(
-            masked_file=masked_data,
-            file_type=request.file_type,
+        from app.services.file.file_mask_service import mask_file_from_server
+        logger.info(f"마스킹 요청: connectionId={request.connectionId}, filePath={request.filePath}, fileCategory={request.fileCategory}")
+        result = mask_file_from_server(
+            connection_id=request.connectionId,
+            file_path=request.filePath,
+            file_category=request.fileCategory,
+            document_file_processor=document_file_processor,
+            image_detector=image_detector,
+            audio_detector=audio_detector,
+            video_detector=video_detector,
+            masker=masker,
         )
-    except HTTPException:
-        # HTTPException은 그대로 전파
-        raise
+        return FileMaskResponse(
+            success=result["success"],
+            maskedFileBase64=result.get("maskedFileBase64", ""),
+        )
     except Exception as e:
-        logger.error(f"마스킹 처리 중 예상치 못한 오류 발생: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"마스킹 처리 중 오류가 발생했습니다: {str(e)}"
-        )
+        logger.error("마스킹 처리 중 오류: %s", e, exc_info=True)
+        return FileMaskResponse(success=False, maskedFileBase64="")

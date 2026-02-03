@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     VIDEO_OUTPUT_DIR: str = "./output_file/videos"  # 비디오 마스킹 결과
     AUDIO_OUTPUT_DIR: str = "./output_file/audio"  # 오디오 마스킹 결과
 
+    # 마스킹 결과 파일 저장 여부 (로컬=True: output_file에 저장, 서버=False: 저장 없이 base64만 반환)
+    SAVE_MASKED_OUTPUT: bool = True
+
     class Config:
         env_file = ".env"
         case_sensitive = True
@@ -104,6 +107,9 @@ OUTPUT_DIR = _resolve_output_path(settings.OUTPUT_DIR)
 IMAGE_OUTPUT_DIR = _resolve_output_path(settings.IMAGE_OUTPUT_DIR)
 VIDEO_OUTPUT_DIR = _resolve_output_path(settings.VIDEO_OUTPUT_DIR)
 AUDIO_OUTPUT_DIR = _resolve_output_path(settings.AUDIO_OUTPUT_DIR)
+
+# 마스킹 결과 저장 여부 (로컬=True, 서버=False)
+SAVE_MASKED_OUTPUT = settings.SAVE_MASKED_OUTPUT
 
 # 출력 디렉토리 생성
 os.makedirs(OUTPUT_DIR, exist_ok=True)

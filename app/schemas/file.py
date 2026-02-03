@@ -2,7 +2,7 @@
 File AI 요청/응답 스키마
 """
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal
 
 
 # ========== 요청 ==========
@@ -41,8 +41,21 @@ class MaskingRequest(BaseModel):
 
 class FileDetectRequest(BaseModel):
     """파일 서버 스캔(개인정보 탐지) 요청"""
-    connectionId: str
+    connectionId: int
     piiFiles: List[str]
+
+
+class FileMaskRequest(BaseModel):
+    """파일 서버 마스킹 요청 (connectionId + filePath + fileCategory)"""
+    connectionId: int
+    filePath: str
+    fileCategory: Literal["DOCUMENT", "AUDIO", "PHOTO", "VIDEO"]
+
+
+class FileMaskResponse(BaseModel):
+    """파일 서버 마스킹 응답"""
+    success: bool
+    maskedFileBase64: str = ""
 
 
 # ========== 응답 ==========

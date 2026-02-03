@@ -123,7 +123,7 @@ def _aggregate_pii_details(
 
 
 def scan_files(
-    connection_id: str,
+    connection_id: int,
     pii_files: List[str],
     document_detector,
     image_detector,
