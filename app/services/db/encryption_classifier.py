@@ -179,7 +179,49 @@ class EncryptionClassifier:
         except Exception as e:
             logger.warning(f"PK 조회 실패 table={table_name}: {e}")
             return []
-    
+
+    def _get_first_column(
+        self,
+        engine: Engine,
+        table_name: str,
+        dialect: str,
+        default_schema: str = "public",
+    ) -> Optional[str]:
+        """
+        PK가 없을 때 사용할 테이블의 첫 번째 컬럼명 조회.
+        information_schema.columns (또는 Oracle 동등) 사용.
+        """
+        schema, table = self._parse_table_name(table_name)
+        if dialect == "mysql" and schema == "public":
+            schema = default_schema
+        if dialect == "oracle" and schema == "public":
+            schema = default_schema
+        try:
+            with engine.connect() as conn:
+                if dialect == "oracle":
+                    query = text("""
+                        SELECT COLUMN_NAME
+                        FROM ALL_TAB_COLUMNS
+                        WHERE OWNER = :table_schema AND TABLE_NAME = :table_name
+                        ORDER BY COLUMN_ID
+                        FETCH FIRST 1 ROW ONLY
+                    """)
+                    result = conn.execute(query, {"table_schema": schema, "table_name": table})
+                else:
+                    query = text("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = :table_schema AND table_name = :table_name
+                        ORDER BY ordinal_position
+                        LIMIT 1
+                    """)
+                    result = conn.execute(query, {"table_schema": schema, "table_name": table})
+                row = result.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            logger.warning(f"첫 번째 컬럼 조회 실패 table={table_name}: {e}")
+            return None
+
     def check_encryption(self, values: list) -> str:
         """
         값 리스트를 받아 암호화 여부("되어있음"/"안되어있음")를 반환
@@ -230,8 +272,14 @@ class EncryptionClassifier:
                 pk_cols = self._get_primary_key_columns(
                     target_engine, table_name, dialect, default_schema
                 )
-                key_column = pk_cols[0] if pk_cols else "id"
-                logger.info(f"자동 PK 사용: table={table_name} -> key_column={key_column}")
+                if pk_cols:
+                    key_column = pk_cols[0]
+                    logger.info(f"자동 PK 사용: table={table_name} -> key_column={key_column}")
+                else:
+                    key_column = self._get_first_column(
+                        target_engine, table_name, dialect, default_schema
+                    ) or "id"
+                    logger.info(f"PK 없음, 첫 번째 컬럼 사용: table={table_name} -> key_column={key_column}")
             logger.info(
                 f"암호화 여부 판단 시작: connection_id={connection_id}, dbms={dialect}, "
                 f"table={table_name}, column={column_name}, key_column={key_column}"

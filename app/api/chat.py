@@ -3,8 +3,6 @@ AI 어시스턴트 API
 """
 from fastapi import APIRouter, Depends
 from app.schemas.chat import (
-    ChatRequest,
-    ChatResponse,
     RegulationSearchRequest,
     RegulationSearchResponse,
     RegulationSearchResult,
@@ -13,30 +11,11 @@ from app.schemas.chat import (
     RegulationUploadResponse,
     RegulationUploadRequest,
 )
-from app.api.deps import get_assistant, get_regulation_search, get_langgraph_chatbot, get_regulation_upload
+from app.api.deps import get_regulation_search, get_langgraph_chatbot, get_regulation_upload
 from app.core.logging import logger
 import time
 
 router = APIRouter()
-
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat(
-    request: ChatRequest,
-    assistant=Depends(get_assistant),
-):
-    """자연어 질의응답"""
-    logger.info(f"AI 어시스턴트 질의: {request.query}")
-
-    result = await assistant.chat(
-        query=request.query,
-        context=request.context,
-    )
-
-    return ChatResponse(
-        answer=result.get("answer", ""),
-        sources=result.get("sources", []),
-    )
 
 
 @router.post("/search-regulations", response_model=RegulationSearchResponse)
@@ -64,8 +43,8 @@ async def search_regulations(
     )
 
 
-@router.post("/chat/langgraph", response_model=LangGraphChatResponse)
-async def langgraph_chat(
+@router.post("/chatbot", response_model=LangGraphChatResponse)
+async def chatbot(
     request: LangGraphChatRequest,
     chatbot=Depends(get_langgraph_chatbot),
 ):
@@ -128,9 +107,6 @@ async def langgraph_chat(
         return LangGraphChatResponse(
             answer=result.get("final_answer", ""),
             sources=sources,
-            query_type=result.get("query_type", "general"),
-            relevance_score=result.get("relevance_score"),
-            hallucination_score=result.get("hallucination_score"),
         )
 
     except Exception as e:
@@ -139,9 +115,6 @@ async def langgraph_chat(
         return LangGraphChatResponse(
             answer=f"죄송합니다. 챗봇 실행 중 오류가 발생했습니다: {str(e)}",
             sources=[],
-            query_type="general",
-            relevance_score=None,
-            hallucination_score=None,
         )
 
 
