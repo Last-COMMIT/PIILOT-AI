@@ -35,6 +35,7 @@ class CustomLawRetriever(BaseRetriever):
                 page_content=result.get("text", ""),
                 metadata={
                     'id': result.get("id"),
+                    'document_title': metadata.get("document_title"),
                     'law_name': metadata.get("law_name"),
                     'article': metadata.get("article"),
                     'page': metadata.get("page"),

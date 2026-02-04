@@ -180,6 +180,7 @@ class VectorDB:
                         cursor.execute(f"""
                             SELECT 
                                 id,
+                                document_title,
                                 law_name,
                                 article,
                                 chunk_text,
@@ -195,6 +196,7 @@ class VectorDB:
                         cursor.execute(f"""
                             SELECT 
                                 id,
+                                document_title,
                                 law_name,
                                 article,
                                 chunk_text,
@@ -215,13 +217,14 @@ class VectorDB:
                     for row in results:
                         formatted_results.append({
                             "id": str(row[0]),
-                            "text": row[3],  # chunk_text
+                            "text": row[4],  # chunk_text
                             "metadata": {
-                                "law_name": row[1],
-                                "article": row[2],
-                                "page": row[4]
+                                "document_title": row[1],
+                                "law_name": row[2],
+                                "article": row[3],
+                                "page": row[5]
                             },
-                            "distance": 1.0 - float(row[5])  # similarity를 distance로 변환
+                            "distance": 1.0 - float(row[6])  # similarity를 distance로 변환
                         })
                     
                     total_search_time = time.time() - search_start_time

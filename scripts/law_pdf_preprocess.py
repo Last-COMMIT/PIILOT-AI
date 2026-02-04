@@ -333,23 +333,28 @@ def _hangul_to_item(hangul: str) -> str:
     """한글 자모를 목(目) 형식으로 변환 (예: "가" -> "가목")"""
     return f"{hangul}목"
 
-def extract_metadata_from_pdf(file_path: str, fixed_pages: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+def extract_metadata_from_pdf(file_path: str, fixed_pages: List[Dict[str, Any]], original_file_path: Optional[str] = None) -> Dict[str, Optional[str]]:
     """
     PDF 파일명과 내용에서 메타데이터 자동 추출
     
     Args:
-        file_path: PDF 파일 경로
+        file_path: PDF 파일 경로 (로컬 파일 경로)
         fixed_pages: 페이지별 텍스트 리스트
+        original_file_path: 원본 파일 경로 (URL인 경우 원본 URL 전달)
     
     Returns:
         dict: document_title, law_name, effective_date를 포함한 메타데이터
     """
     metadata = {}
 
-
-# 1. document_title: 파일명에서 추출
-    filename = os.path.basename(file_path)
-    document_title = filename.replace('.pdf', '').replace('.PDF', '').strip()
+    # 1. document_title: 원본 파일 경로가 URL이면 URL 사용, 아니면 파일명에서 추출
+    if original_file_path and (original_file_path.startswith("http://") or original_file_path.startswith("https://")):
+        # URL인 경우 원본 URL을 document_title로 사용
+        document_title = original_file_path
+    else:
+        # 로컬 파일인 경우 파일명에서 추출
+        filename = os.path.basename(file_path)
+        document_title = filename.replace('.pdf', '').replace('.PDF', '').strip()
     metadata['document_title'] = document_title
     
     # 2. law_name: PDF 첫 페이지에서 추출 시도
@@ -500,6 +505,7 @@ def build_chunks_with_metadata(
     document_title: Optional[str] = None,
     law_name: Optional[str] = None,
     effective_date: Optional[str] = None,
+    original_file_path: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     입력: 
@@ -508,12 +514,13 @@ def build_chunks_with_metadata(
         document_title: 문서 제목 (None이면 자동 추출)
         law_name: 법령명/규정명 (None이면 자동 추출)
         effective_date: 시행일/개정일 (None이면 자동 추출 시도)
+        original_file_path: 원본 파일 경로 (URL인 경우 원본 URL 전달, document_title에 사용)
     출력: [{"chunk_text": "...", "metadata": {...}}, ...]
     metadata 스키마는 사용자 정의 형태에 맞춘다.
     """
     # 메타데이터 자동 추출
     if file_path:
-        auto_metadata = extract_metadata_from_pdf(file_path, fixed_pages)
+        auto_metadata = extract_metadata_from_pdf(file_path, fixed_pages, original_file_path=original_file_path)
         document_title = document_title or auto_metadata['document_title']
         law_name = law_name or auto_metadata['law_name']
         effective_date = effective_date or auto_metadata['effective_date']
