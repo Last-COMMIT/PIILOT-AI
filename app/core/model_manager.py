@@ -34,6 +34,9 @@ class ModelManager:
     
     # Whisper 모델 설정
     WHISPER_MODEL_SIZE = "large-v3"
+
+    # Flashrank 모델 설정
+    FLASHRANK_MODEL_NAME = "ms-marco-MiniLM-L-12-v2"
     
     # 로컬 모델 경로 (상대 경로, 프로젝트 루트 기준)
     LOCAL_MODELS = {
@@ -117,6 +120,43 @@ class ModelManager:
         except Exception as e:
             logger.error(f"✗ Whisper 모델 다운로드 실패: {model_size} - {e}")
             raise
+
+    # Flashrank 모델 다운로드
+    @classmethod
+    def download_flashrank_model(cls, model_name: str = "ms-marco-MiniLM-L-12-v2"):
+        """Flashrank 모델 다운로드. 프로젝트 models/flashrank에 저장."""
+        try:
+            cls.setup_cache_dir()
+            download_root = cls.FLASHRANK_CACHE_DIR
+
+            # 모델 파일 경로 확인
+            model_dir = os.path.join(download_root, model_name)
+            onnx_file = os.path.join(model_dir, "flashrank-MiniLM-L-12-v2_Q.onnx")
+            # 지연 import: flashrank은 선택적 의존성
+            from flashrank import Ranker
+            logger.info(f"Flashrank 모델 다운로드 중: {model_name} -> {download_root}")
+            
+            # Ranker 초기화 시 모델이 없으면 자동으로 다운로드됨
+            ranker = Ranker(
+                model_name=model_name,
+                cache_dir=download_root
+            )
+            # 다운로드 완료 확인
+            if os.path.exists(onnx_file):
+                file_size = os.path.getsize(onnx_file) / (1024 * 1024)  # MB
+                logger.info(f"✓ Flashrank 모델 다운로드 완료: ({file_size:.2f} MB)")
+            else:
+                logger.error(f"✗ 다운로드 후에도 모델 파일을 찾을 수 없습니다: {onnx_file}")
+                raise FileNotFoundError(f"모델 파일이 생성되지 않았습니다: {onnx_file}")
+            
+            del ranker  # 메모리 해제
+            
+        except ImportError as e:
+            logger.warning(f"flashrank이 설치되지 않았습니다. Flashrank 기능을 사용할 수 없습니다: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"✗ Flashrank 모델 다운로드 실패: {model_name} - {e}")
+            raise
     
     @classmethod
     def get_local_model_path(cls, model_key: str) -> str:
@@ -167,8 +207,17 @@ class ModelManager:
             logger.warning(
                 f"Whisper 모델 다운로드 실패 (서비스는 계속 실행됩니다): {e}"
             )
+
+        # 4. Flashrank 모델 다운로드
+        logger.info("\n[Flashrank 모델 다운로드]")
+        try:
+            cls.download_flashrank_model(cls.FLASHRANK_MODEL_NAME)
+        except Exception as e:
+            logger.warning(
+                f"Flashrank 모델 다운로드 실패 (서비스는 계속 실행됩니다): {e}"
+            )
         
-        # 4. 로컬 모델 확인
+        # 5. 로컬 모델 확인
         logger.info("\n[로컬 모델 확인]")
         for model_key, model_path in cls.LOCAL_MODELS.items():
             if cls.check_local_model(model_path):

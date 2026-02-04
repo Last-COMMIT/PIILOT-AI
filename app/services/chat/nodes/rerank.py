@@ -62,8 +62,13 @@ def rerank(state: ChatbotState) -> ChatbotState:
             base_retriever=retriever
         )
         
-        # 재순위화된 문서 가져오기
-        reranked_docs = compression_retriever.get_relevant_documents(user_question)
+        # 재순위화된 문서 가져오기 (LangChain 0.1.0+ 버전에서는 get_relevant_documents() 메서드가 invoke()로 변경)
+        reranked_docs = compression_retriever.invoke(user_question)
+
+        # Flashrank의 relevance_score를 float로 변환 (Flashrank 모델 실행을 위해 필요)
+        for doc in reranked_docs:
+            if 'relevance_score' in doc.metadata:
+                doc.metadata['relevance_score'] = float(doc.metadata['relevance_score'])
         
         # 결과를 state에 저장
         state["reranked_docs"] = [
