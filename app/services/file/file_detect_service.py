@@ -88,7 +88,7 @@ def _aggregate_pii_details(
     if audio_detected:
         for item in audio_detected:
             t = item.get("type") or ""
-            code = PII_TYPE_NAME_TO_CODE.get(t) or t
+            code = PII_LABEL_TO_CODE.get(t) or PII_TYPE_NAME_TO_CODE.get(t) or t
             total_by_code[code] = total_by_code.get(code, 0) + 1
     if video_result:
         faces = video_result.get("faces", [])
@@ -101,7 +101,7 @@ def _aggregate_pii_details(
             total_by_code["FACE"] = total_by_code.get("FACE", 0) + len(faces)
         for item in audio_items:
             t = item.get("type") or ""
-            code = PII_TYPE_NAME_TO_CODE.get(t) or t
+            code = PII_LABEL_TO_CODE.get(t) or PII_TYPE_NAME_TO_CODE.get(t) or t
             total_by_code[code] = total_by_code.get(code, 0) + 1
         if video_text_pii_by_label:
             for label, count in video_text_pii_by_label.items():
