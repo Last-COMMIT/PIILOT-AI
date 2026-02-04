@@ -21,6 +21,7 @@ from app.services.chat.routers.routing import (
     route_after_hallucination
 )
 from app.core.logging import logger
+from pathlib import Path
 
 
 def create_chatbot_app():
@@ -104,10 +105,42 @@ def create_chatbot_app():
             }
         )
         
-        # 컴파일 (MemorySaver로 세션별 대화 유지)
+        # 컴파일 (in-memory checkpointer: 서버 재시작 시 대화 이력 초기화됨)
         memory = MemorySaver()
         app = workflow.compile(checkpointer=memory)
         
+        # 그래프 시각화(mermaid) 저장 - 발표/문서용
+        try:
+            out_dir = Path("output_file") / "langgraph"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            graph = app.get_graph()
+
+            mermaid: str = ""
+            # langgraph 버전에 따라 메서드명이 다를 수 있어 순차 시도
+            if hasattr(graph, "draw_mermaid"):
+                mermaid = graph.draw_mermaid()
+            elif hasattr(graph, "to_mermaid"):
+                mermaid = graph.to_mermaid()
+            elif hasattr(graph, "mermaid"):
+                mermaid = graph.mermaid()
+
+            if mermaid:
+                (out_dir / "langgraph_chatbot.mmd").write_text(mermaid, encoding="utf-8")
+                (out_dir / "langgraph_chatbot.md").write_text(
+                    f"""## LangGraph Chatbot Graph (Mermaid)
+
+```mermaid
+{mermaid}
+```
+""",
+                    encoding="utf-8",
+                )
+                logger.info(f"LangGraph 그래프 mermaid 저장 완료: {out_dir}/langgraph_chatbot.mmd")
+            else:
+                logger.warning("LangGraph 그래프 mermaid 생성 메서드를 찾지 못했습니다(버전 차이 가능).")
+        except Exception as e:
+            logger.warning(f"LangGraph 그래프 시각화 저장 실패(무시): {e}", exc_info=True)
+
         logger.info("✓ LangGraph 챗봇 그래프 구성 완료")
         return app
         

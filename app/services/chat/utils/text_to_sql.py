@@ -9,7 +9,36 @@ from app.core.logging import logger
 from app.services.chat.utils.llm_client import get_answer_llm
 from urllib.parse import urlparse
 from typing import Optional, Dict
+from datetime import date, timedelta
 import re
+
+_AGENT_STOP_PHRASE = "Agent stopped due to iteration limit or time limit"
+
+
+def _build_date_context() -> str:
+    """
+    SQL Agent에 넘길 기준일·주차 정보 문자열 생성.
+    오늘, 이번 주, 저번 주 구간을 명시해 '이번 주/저번 주 비교' 등 질문에 활용되도록 함.
+    """
+    today = date.today()
+    # ISO 주: 월요일 시작
+    iso_weekday = today.isoweekday()  # 1=월 .. 7=일
+    monday_this = today - timedelta(days=iso_weekday - 1)
+    monday_last = monday_this - timedelta(days=7)
+    sunday_this = monday_this + timedelta(days=6)
+    sunday_last = monday_last + timedelta(days=6)
+    return (
+        f"[기준일 정보] 오늘: {today.isoformat()} (YYYY-MM-DD). "
+        f"이번 주: {monday_this.isoformat()} ~ {sunday_this.isoformat()}. "
+        f"저번 주: {monday_last.isoformat()} ~ {sunday_last.isoformat()}. "
+        "날짜/기간 관련 질문(오늘, 이번 주, 저번 주 등)은 위 구간을 사용하세요.\n"
+        "[DB 사용] 반드시 먼저 테이블 목록을 확인한 뒤, 필요한 테이블의 스키마(컬럼·타입)를 조회하고 그에 맞는 SQL만 작성하세요."
+    )
+
+
+def _is_agent_stopped_message(text: str) -> bool:
+    t = (text or "").strip()
+    return bool(t) and _AGENT_STOP_PHRASE.lower() in t.lower()
 
 
 def get_db_schema() -> Optional[SQLDatabase]:
@@ -90,6 +119,9 @@ def generate_sql_query_and_execute(question: str, context: Optional[Dict] = None
         
         logger.info(f"SQL Agent 실행 요청: {question}")
         
+        # 에이전트용 컨텍스트: 오늘 날짜·주차 + DB 스키마 활용 지시
+        date_and_schema_context = _build_date_context()
+        
         # 대화 맥락 구성
         context_text = ""
         if context and context.get("previous_messages"):
@@ -99,10 +131,11 @@ def generate_sql_query_and_execute(question: str, context: Optional[Dict] = None
                 content = msg.get("content", "")
                 context_text += f"{role}: {content}\n"
         
-        # 질문에 맥락 추가
-        full_question = question
+        # 질문에 맥락 추가: 기준일/스키마 지시 → (선택) 이전 대화 → 질문
+        full_question = f"{date_and_schema_context}\n"
         if context_text:
-            full_question = f"{context_text}\n질문: {question}"
+            full_question += f"{context_text}\n"
+        full_question += f"질문: {question}"
         
         # LLM 가져오기
         llm = get_answer_llm()
@@ -115,7 +148,7 @@ def generate_sql_query_and_execute(question: str, context: Optional[Dict] = None
             verbose=False,  # 로그가 너무 많을 수 있으므로 False
             # agent_type 제거: HuggingFace 모델과의 호환성을 위해 기본 ReAct 방식 사용
             handle_parsing_errors=True,  # 파싱 에러 처리
-            max_iterations=5,  # 최대 반복 횟수 제한
+            max_iterations=15,  # 반복 제한 상향 (스키마 탐색/집계 질문 대응)
         )
         
         # Agent 실행 (SQL 생성 + 실행 + 결과 반환)
@@ -126,6 +159,10 @@ def generate_sql_query_and_execute(question: str, context: Optional[Dict] = None
         result_text = str(result.get("output", ""))
         
         if result_text:
+            # iteration/time limit으로 중단된 경우는 실패로 간주 (상위에서 폴백/재시도 처리)
+            if _is_agent_stopped_message(result_text):
+                logger.warning(f"SQL Agent가 제한에 의해 중단됨: {result_text[:120]}...")
+                return None
             logger.info(f"SQL Agent 실행 완료: {result_text[:100]}...")
             return result_text
         else:
