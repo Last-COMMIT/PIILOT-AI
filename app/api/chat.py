@@ -13,6 +13,7 @@ from app.schemas.chat import (
 )
 from app.api.deps import get_regulation_search, get_langgraph_chatbot, get_regulation_upload
 from app.core.logging import logger
+from app.core.async_utils import run_in_thread
 import time
 
 router = APIRouter()
@@ -26,7 +27,8 @@ async def search_regulations(
     """법령 검색"""
     logger.info(f"법령 검색: {request.query}")
 
-    results = regulation_search.respond(
+    results = await run_in_thread(
+        regulation_search.respond,
         query=request.query,
         n_results=request.n_results,
         top_n=request.top_n,
@@ -79,7 +81,11 @@ async def chatbot(
 
         # LangGraph 실행
         graph_start_time = time.time()
-        result = chatbot.invoke(initial_state, config)
+        result = await run_in_thread(
+            chatbot.invoke,
+            initial_state,
+            config
+        )
         graph_elapsed = time.time() - graph_start_time
         logger.debug(f"LangGraph 실행 완료 (소요 시간: {graph_elapsed:.2f}초)")
 

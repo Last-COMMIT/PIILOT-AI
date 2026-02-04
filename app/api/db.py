@@ -19,6 +19,7 @@ from app.schemas.db import (
 )
 from app.api.deps import get_column_detector, get_encryption_classifier, get_pii_column_classifier, get_column_dictionary_upload
 from app.core.logging import logger
+from app.core.async_utils import run_in_thread
 
 router = APIRouter()
 
@@ -44,7 +45,8 @@ async def detect_personal_info_columns(
     """개인정보 컬럼 탐지"""
     logger.info(f"컬럼 탐지 요청: {request.schema_info.get('table_name', 'unknown')}")
 
-    detected_columns = column_detector.detect_personal_info_columns(
+    detected_columns = await run_in_thread(
+        column_detector.detect_personal_info_columns,
         request.schema_info
     )
 
@@ -65,7 +67,8 @@ async def check_encryption(
     for item in request.piiColumns:
         # keyColumn 생략 시 None 전달 → 서비스에서 PK 자동 조회
         key_column = item.keyColumn
-        classification_result = encryption_classifier.classify(
+        classification_result = await run_in_thread(
+            encryption_classifier.classify,
             connection_id=connection_id,
             table_name=item.tableName,
             column_name=item.columnName,
@@ -101,7 +104,10 @@ async def detect_pii_columns(
     ]
 
     # PII 분류 실행
-    pii_results = classifier.classify(tables=tables_dict)
+    pii_results = await run_in_thread(
+        classifier.classify,
+        tables=tables_dict
+    )
 
     # 응답 생성
     pii_columns = [PIIColumnResult(**r) for r in pii_results]
@@ -115,7 +121,7 @@ async def upload_column_dictionary(request: ColumnDictionaryUploadRequest):
 
     try:
         processor = get_column_dictionary_upload()
-        documents = processor(request.file_path)
+        documents = await run_in_thread(processor, request.file_path)
 
         if not documents:
             logger.warning(f"생성된 문서가 없음: {request.file_path}")
