@@ -296,6 +296,7 @@ class EncryptionClassifier:
                 return {
                     "table_name": table_name,
                     "column_name": column_name,
+                    "key_column": key_column,
                     "encryption_status": "판단불가",
                     "total_records": 0,
                     "encrypted_records": 0,
@@ -329,6 +330,7 @@ class EncryptionClassifier:
             return {
                 "table_name": table_name,
                 "column_name": column_name,
+                "key_column": key_column,
                 "encryption_status": status,
                 "total_records": total_records,
                 "encrypted_records": encrypted_count,
@@ -339,6 +341,7 @@ class EncryptionClassifier:
             return {
                 "table_name": table_name,
                 "column_name": column_name,
+                "key_column": key_column if 'key_column' in dir() else None,
                 "encryption_status": "에러",
                 "error_message": str(e),
                 "total_records": 0,
