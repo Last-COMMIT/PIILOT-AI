@@ -264,7 +264,7 @@ class Masker:
                     merge_cmd = [
                         'ffmpeg', '-i', output_video_path,
                         '-i', masked_audio_path,
-                        '-c:v', 'copy', '-c:a', 'aac',
+                        '-c:v', 'libx264', '-preset', 'fast', '-c:a', 'aac',
                         '-map', '0:v:0', '-map', '1:a:0',
                         '-shortest', '-y', final_video_with_audio
                     ]
