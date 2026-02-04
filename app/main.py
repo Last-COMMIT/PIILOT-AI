@@ -3,9 +3,7 @@ FastAPI 메인 애플리케이션
 AI 처리 전용 마이크로서비스
 """
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
 from app.core.logging import logger
 from app.core.exceptions import global_exception_handler, validation_exception_handler
 from fastapi.exceptions import RequestValidationError
@@ -16,15 +14,6 @@ app = FastAPI(
     title="PIILOT",
     description="AI 기반 개인정보 보호 및 유출 관제 플랫폼 - AI 처리 전용 서비스",
     version="0.1.0",
-)
-
-# CORS 설정
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 # 글로벌 예외 핸들러 등록
