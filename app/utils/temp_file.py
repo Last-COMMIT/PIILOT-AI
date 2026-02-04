@@ -3,6 +3,11 @@
 """
 import os
 import tempfile
+from pathlib import Path
+from urllib.parse import urlparse, unquote
+
+import requests
+
 from app.core.logging import logger
 
 
@@ -41,3 +46,41 @@ class TempFileManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.cleanup()
         return False
+
+
+def download_file_from_url(url: str, timeout: int = 120) -> Path:
+    """
+    URL에서 파일을 다운로드하여 임시 파일로 저장
+
+    Args:
+        url: 다운로드할 파일 URL (S3 등)
+        timeout: 요청 타임아웃 (초)
+
+    Returns:
+        Path: 다운로드된 임시 파일 경로
+
+    Raises:
+        requests.RequestException: 다운로드 실패 시
+    """
+    logger.info(f"URL에서 파일 다운로드 시작: {url}")
+
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
+
+    # URL에서 파일 확장자 추출
+    parsed_url = urlparse(url)
+    url_path = unquote(parsed_url.path)
+    suffix = Path(url_path).suffix or ".pdf"
+
+    # 임시 파일에 저장
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="piilot_download_") as tmp:
+        tmp.write(response.content)
+        tmp_path = Path(tmp.name)
+
+    logger.info(f"파일 다운로드 완료: {tmp_path} ({len(response.content):,} bytes)")
+    return tmp_path
+
+
+def is_url(path: str) -> bool:
+    """경로가 URL인지 확인"""
+    return path.startswith("http://") or path.startswith("https://")

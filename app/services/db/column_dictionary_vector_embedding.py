@@ -348,57 +348,76 @@ def insert_to_database(documents: List[Document], embeddings: Tensor, batch_size
         conn.close()
 
 def column_dictionary_to_vector(file_path: str):
-    """메인 실행 함수"""
+    """메인 실행 함수 (로컬 파일 또는 URL 지원)"""
+    import os
+    from app.utils.temp_file import download_file_from_url, is_url
 
-    if isinstance(file_path, str):
-        file_path = Path(file_path)
+    temp_file = None
+    local_path = file_path
 
-    # 1. PDF 줄 단위 추출
-    lines = load_pdf_lines(file_path)
-    logger.info(f"텍스트 추출 완료 (총 {len(lines):,} 줄)")
-    
-    # 2. 메타데이터 추출
-    extractor = RowBasedMetadataExtractor(lines)
-    metadata_list = extractor.extract_all()
-    
-    if not metadata_list:
-        logger.warning("추출된 메타데이터가 없습니다.")
-        return
-    logger.info(f"{len(metadata_list)}개 metadata 생성 완료")
-    
-    # 3. Document 생성
-    documents = create_documents(metadata_list)
-    logger.info(f"{len(documents)}개 Document 생성 완료")
+    # URL인 경우 다운로드
+    if is_url(file_path):
+        logger.info(f"URL에서 PDF 다운로드: {file_path}")
+        temp_file = download_file_from_url(file_path)
+        local_path = temp_file
+    else:
+        local_path = Path(file_path)
 
-    # 4. 임베딩 모델 로드 (ModelManager의 캐시 디렉토리 사용)
-    from app.core.model_manager import ModelManager
-    ModelManager.setup_cache_dir()  # 캐시 디렉토리 설정
-    cache_dir = ModelManager.get_cache_dir()
-    
-    model_name = ModelManager.HUGGINGFACE_MODELS["embedding"]["name"]
-    logger.info(f"임베딩 모델 로드 시작: {model_name} (캐시 디렉토리: {cache_dir})")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
-    model = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
-    model.eval()
-    logger.info("임베딩 모델 로드 완료")
+    try:
+        # 1. PDF 줄 단위 추출
+        lines = load_pdf_lines(local_path)
+        logger.info(f"텍스트 추출 완료 (총 {len(lines):,} 줄)")
 
-    # 4. 배치 임베딩
-    texts = [doc.page_content for doc in documents]
-    embeddings = generate_embeddings_batch(
-        texts=texts,
-        tokenizer=tokenizer,
-        model=model,
-        task='데이터베이스 컬럼명을 분석하여 개인정보 포함 여부와 유형을 식별합니다',
-        batch_size=32
-    )
-    logger.info(f"배치 임베딩 완료! (shape: {embeddings.shape})")
-    
-    # 5. PGVector 저장
-    insert_to_database(
-        documents=documents, 
-        embeddings=embeddings
-    )
-    logger.info("VectorDB 저장 완료!")
-    
+        # 2. 메타데이터 추출
+        extractor = RowBasedMetadataExtractor(lines)
+        metadata_list = extractor.extract_all()
 
-    return documents
+        if not metadata_list:
+            logger.warning("추출된 메타데이터가 없습니다.")
+            return []
+        logger.info(f"{len(metadata_list)}개 metadata 생성 완료")
+
+        # 3. Document 생성
+        documents = create_documents(metadata_list)
+        logger.info(f"{len(documents)}개 Document 생성 완료")
+
+        # 4. 임베딩 모델 로드 (ModelManager의 캐시 디렉토리 사용)
+        from app.core.model_manager import ModelManager
+        ModelManager.setup_cache_dir()  # 캐시 디렉토리 설정
+        cache_dir = ModelManager.get_cache_dir()
+
+        model_name = ModelManager.HUGGINGFACE_MODELS["embedding"]["name"]
+        logger.info(f"임베딩 모델 로드 시작: {model_name} (캐시 디렉토리: {cache_dir})")
+        tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+        model = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
+        model.eval()
+        logger.info("임베딩 모델 로드 완료")
+
+        # 5. 배치 임베딩
+        texts = [doc.page_content for doc in documents]
+        embeddings = generate_embeddings_batch(
+            texts=texts,
+            tokenizer=tokenizer,
+            model=model,
+            task='데이터베이스 컬럼명을 분석하여 개인정보 포함 여부와 유형을 식별합니다',
+            batch_size=32
+        )
+        logger.info(f"배치 임베딩 완료! (shape: {embeddings.shape})")
+
+        # 6. PGVector 저장
+        insert_to_database(
+            documents=documents,
+            embeddings=embeddings
+        )
+        logger.info("VectorDB 저장 완료!")
+
+        return documents
+
+    finally:
+        # 임시 파일 정리
+        if temp_file and temp_file.exists():
+            try:
+                os.unlink(temp_file)
+                logger.debug(f"임시 파일 삭제: {temp_file}")
+            except Exception as e:
+                logger.warning(f"임시 파일 삭제 실패: {temp_file} - {e}")

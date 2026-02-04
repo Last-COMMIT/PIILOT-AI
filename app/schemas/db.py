@@ -83,7 +83,8 @@ class EncryptionCheckResponse(BaseModel):
 
 class ColumnDictionaryUploadResponse(BaseModel):
     """DB 단어사전 업로드 응답"""
-    status: str
+    success: bool
+    message: str
 class SupportedDbmsItem(BaseModel):
     """지원 DBMS 항목 (connection 등록 시 dbms_type_id 참고용)"""
     id: str

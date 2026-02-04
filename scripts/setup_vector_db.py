@@ -83,55 +83,66 @@ def insert_to_database(chunks: List[Dict[str, Any]], embeddings: Tensor, batch_s
         conn.close()
 
 async def law_pdf_to_vector(file_path: str):
-    """법령 데이터를 Vector DB에 로드"""
+    """법령 데이터를 Vector DB에 로드 (로컬 파일 또는 URL 지원)"""
+    from app.utils.temp_file import download_file_from_url, is_url
 
-    # TODO(pgvector):
-    # - PostgreSQL에 pgvector extension 설치/활성화
-    # - regulations 테이블 생성/마이그레이션
-    # - 법령 텍스트 로드(파일/DB/크롤링 등)
-    # - 임베딩 생성 후 upsert_regulations(items)로 적재
-    
-    if not os.path.exists(file_path):
+    temp_file = None
+    local_path = file_path
+
+    # URL인 경우 다운로드
+    if is_url(file_path):
+        logger.info(f"URL에서 PDF 다운로드: {file_path}")
+        temp_file = download_file_from_url(file_path)
+        local_path = str(temp_file)
+    elif not os.path.exists(file_path):
         logger.info(f"파일 없음: {file_path}")
         return
 
-    fixed_pages = extract_and_fix_pages(file_path)
+    try:
+        fixed_pages = extract_and_fix_pages(local_path)
 
-    if not fixed_pages:
-        logger.error("fixed_pages가 비어있음")
-        return
+        if not fixed_pages:
+            logger.error("fixed_pages가 비어있음")
+            return
 
-    # 청크 생성
-    chunks = build_chunks_with_metadata(
-        fixed_pages=fixed_pages,
-        file_path=file_path
-    )
+        # 청크 생성
+        chunks = build_chunks_with_metadata(
+            fixed_pages=fixed_pages,
+            file_path=local_path
+        )
 
-    logger.info(f"chunks 생성 완료: {len(chunks) if chunks else 0}개")
-    if not chunks:
-        logger.error("chunks가 비어있음")
-        return
+        logger.info(f"chunks 생성 완료: {len(chunks) if chunks else 0}개")
+        if not chunks:
+            logger.error("chunks가 비어있음")
+            return
 
-    # 모델 로드 (다른 서비스와 동일하게 models/huggingface에서 로드)
-    ModelManager.setup_cache_dir()
-    cache_dir = ModelManager.get_cache_dir()
-    model_name = ModelManager.HUGGINGFACE_MODELS["embedding"]["name"]
-    logger.info(f"임베딩 모델 로드: {model_name} (캐시: {cache_dir})")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
-    model = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
-    model.eval()
+        # 모델 로드 (다른 서비스와 동일하게 models/huggingface에서 로드)
+        ModelManager.setup_cache_dir()
+        cache_dir = ModelManager.get_cache_dir()
+        model_name = ModelManager.HUGGINGFACE_MODELS["embedding"]["name"]
+        logger.info(f"임베딩 모델 로드: {model_name} (캐시: {cache_dir})")
+        tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+        model = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
+        model.eval()
 
-    # 임베딩 생성
-    embeddings = generate_embeddings_batch(
-        [chunk['chunk_text'] for chunk in chunks],
-        tokenizer,
-        model,
-        batch_size=32
-    )
+        # 임베딩 생성
+        embeddings = generate_embeddings_batch(
+            [chunk['chunk_text'] for chunk in chunks],
+            tokenizer,
+            model,
+            batch_size=32
+        )
 
-    # 데이터베이스 삽입
-    insert_to_database(chunks, embeddings)
+        # 데이터베이스 삽입
+        insert_to_database(chunks, embeddings)
 
-    vector_db = VectorDB
-    
-    logger.info(f"Vector DB 저장 완료: {file_path}")
+        logger.info(f"Vector DB 저장 완료: {file_path}")
+
+    finally:
+        # 임시 파일 정리
+        if temp_file and temp_file.exists():
+            try:
+                os.unlink(temp_file)
+                logger.debug(f"임시 파일 삭제: {temp_file}")
+            except Exception as e:
+                logger.warning(f"임시 파일 삭제 실패: {temp_file} - {e}")
