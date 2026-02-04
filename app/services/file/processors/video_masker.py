@@ -136,12 +136,12 @@ class VideoMasker:
                     else:
                         masked_audio_path = temp_audio_path
 
-                    # 오디오 합성
+                    # 오디오 합성 (H.264로 재인코딩하여 Chrome 호환성 확보)
                     temp_final_video = temp.create(suffix='.mp4')
                     merge_cmd = [
                         'ffmpeg', '-i', save_path,
                         '-i', masked_audio_path,
-                        '-c:v', 'copy', '-c:a', 'aac',
+                        '-c:v', 'libx264', '-preset', 'fast', '-c:a', 'aac',
                         '-map', '0:v:0', '-map', '1:a:0',
                         '-shortest', '-y', temp_final_video,
                     ]
