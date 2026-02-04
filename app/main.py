@@ -8,6 +8,7 @@ from app.core.logging import logger
 from app.core.exceptions import global_exception_handler, validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from app.core.model_manager import ModelManager
+from app.core.async_utils import shutdown_executor
 from app.api import db, file, chat
 
 app = FastAPI(
@@ -71,3 +72,4 @@ async def startup_event():
 async def shutdown_event():
     """애플리케이션 종료 시 실행"""
     logger.info("PIILOT 서비스 종료")
+    shutdown_executor()

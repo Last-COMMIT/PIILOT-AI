@@ -25,6 +25,7 @@ from app.api.deps import (
     get_masker,
 )
 from app.core.logging import logger
+from app.core.async_utils import run_in_thread
 
 router = APIRouter()
 
@@ -40,7 +41,8 @@ async def file_server_detect(
     """파일 서버 스캔: connectionId + piiFiles 경로로 파일 다운로드 후 개인정보 탐지"""
     try:
         from app.services.file.file_detect_service import scan_files
-        results = scan_files(
+        results = await run_in_thread(
+            scan_files,
             connection_id=request.connectionId,
             pii_files=request.piiFiles,
             document_detector=document_detector,
@@ -65,7 +67,10 @@ async def detect_document_personal_info(
     try:
         logger.info(f"문서 탐지 요청: 타입={request.file_type}")
 
-        detected_items = document_detector.detect(request.file_content)
+        detected_items = await run_in_thread(
+            document_detector.detect,
+            request.file_content
+        )
 
         return DocumentDetectionResponse(
             detected_items=detected_items,
@@ -88,7 +93,10 @@ async def detect_image_faces(
     try:
         logger.info(f"이미지 탐지 요청: 포맷={request.image_format}")
 
-        detected_faces = image_detector.detect_faces(request.image_data)
+        detected_faces = await run_in_thread(
+            image_detector.detect_faces,
+            request.image_data
+        )
 
         return ImageDetectionResponse(detected_faces=detected_faces)
     except Exception as e:
@@ -106,7 +114,11 @@ async def detect_audio_personal_info(
     try:
         logger.info(f"음성 탐지 요청: 포맷={request.audio_format}")
 
-        detected_items = audio_detector.detect(request.audio_data, request.audio_format)
+        detected_items = await run_in_thread(
+            audio_detector.detect,
+            request.audio_data,
+            request.audio_format
+        )
 
         return AudioDetectionResponse(detected_items=detected_items)
     except Exception as e:
@@ -124,7 +136,11 @@ async def detect_video_personal_info(
     try:
         logger.info(f"영상 탐지 요청: 포맷={request.video_format}")
 
-        result = video_detector.detect(request.video_data, request.video_format)
+        result = await run_in_thread(
+            video_detector.detect,
+            request.video_data,
+            request.video_format
+        )
 
         faces = result.get("faces", [])
         personal_info_in_audio = result.get("personal_info_in_audio", [])
@@ -175,7 +191,8 @@ async def apply_masking(
     try:
         from app.services.file.file_mask_service import mask_file_from_server
         logger.info(f"마스킹 요청: connectionId={request.connectionId}, filePath={request.filePath}, fileCategory={request.fileCategory}")
-        result = mask_file_from_server(
+        result = await run_in_thread(
+            mask_file_from_server,
             connection_id=request.connectionId,
             file_path=request.filePath,
             file_category=request.fileCategory,
