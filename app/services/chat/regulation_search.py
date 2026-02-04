@@ -47,6 +47,7 @@ class CustomLawRetriever(BaseRetriever):
                 page_content=result.get("text", ""),
                 metadata={
                     'id': result.get("id"),
+                    'document_title': metadata.get("document_title"),
                     'law_name': metadata.get("law_name"),
                     'article': metadata.get("article"),
                     'page': metadata.get("page"),
@@ -269,7 +270,8 @@ class RegulationSearch:
             sources = []
             for doc in sorted_sources:
                 sources.append({
-                    "document_title": doc.metadata.get('law_name', ''),
+                    "document_title": doc.metadata.get('document_title', ''),
+                    "law_name": doc.metadata.get('law_name', ''),
                     "content": doc.page_content,
                     "article": doc.metadata.get('article', ''),
                     "page": str(doc.metadata.get('page', '')),

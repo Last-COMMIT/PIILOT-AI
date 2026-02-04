@@ -88,6 +88,7 @@ async def law_pdf_to_vector(file_path: str):
 
     temp_file = None
     local_path = file_path
+    original_file_path = file_path  # 원본 파일 경로 보관 (URL인 경우 document_title에 사용)
 
     # URL인 경우 다운로드
     if is_url(file_path):
@@ -105,10 +106,11 @@ async def law_pdf_to_vector(file_path: str):
             logger.error("fixed_pages가 비어있음")
             return
 
-        # 청크 생성
+        # 청크 생성 (원본 파일 경로 전달하여 URL인 경우 document_title에 URL 저장)
         chunks = build_chunks_with_metadata(
             fixed_pages=fixed_pages,
-            file_path=local_path
+            file_path=local_path,
+            original_file_path=original_file_path
         )
 
         logger.info(f"chunks 생성 완료: {len(chunks) if chunks else 0}개")

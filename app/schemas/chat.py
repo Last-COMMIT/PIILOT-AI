@@ -34,6 +34,7 @@ class ChatResponse(BaseModel):
 class RegulationSearchResult(BaseModel):
     """법령 검색 결과"""
     document_title: str
+    law_name: str
     content: str
     article: str
     page: str
