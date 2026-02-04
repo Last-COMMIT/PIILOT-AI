@@ -44,6 +44,7 @@ def generate_answer(state: ChatbotState) -> ChatbotState:
     try:
         user_question = state.get("user_question", "")
         messages = state.get("messages", [])
+        conversation_summary = (state.get("conversation_summary") or "").strip()
         db_result = state.get("db_result")
         reranked_docs = state.get("reranked_docs", [])
         generation_retry_count = state.get("generation_retry_count", 0)
@@ -56,11 +57,15 @@ def generate_answer(state: ChatbotState) -> ChatbotState:
             state["generation_retry_count"] = generation_retry_count + 1
             logger.debug(f"재생성 시도로 카운터 증가: {generation_retry_count} -> {generation_retry_count + 1}")
         
-        # 대화 이력 구성 (최근 5개)
-        conversation_history = "\n".join([
+        # 대화 이력 구성 (요약 + 최근 5개)
+        recent_history = "\n".join([
             f"{msg.get('role', 'unknown')}: {msg.get('content', '')}"
             for msg in messages[-5:]
         ]) if messages else "대화 이력 없음"
+        if conversation_summary:
+            conversation_history = f"이전 대화 요약: {conversation_summary}\n\n최근 대화:\n{recent_history}"
+        else:
+            conversation_history = recent_history
         
         # DB 결과 구성
         db_result_text = db_result if db_result else "DB 조회 결과 없음"

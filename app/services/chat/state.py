@@ -8,6 +8,7 @@ class ChatbotState(TypedDict):
     """LangGraph 챗봇 State"""
     # 기본
     messages: List[Dict]  # 대화 이력 [{"role": "user"|"assistant", "content": str}]
+    conversation_summary: Optional[str]  # 오래된 대화 요약(누적)
     user_question: str  # 현재 사용자 질문
     conversation_id: str  # 대화 세션 ID
     

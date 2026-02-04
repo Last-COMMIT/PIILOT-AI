@@ -15,14 +15,15 @@ CLASSIFICATION_PROMPT = """다음 질문을 분석하여 질문 유형을 분류
 {context}
 
 다음 중 하나로 분류하세요:
-- "db_query": 구조화된 데이터베이스 테이블 조회가 필요한 질문 (예: "고객 수는?", "매출 통계는?", "테이블에서 데이터 조회")
+- "db_query": 구조화된 데이터베이스 테이블 조회/집계가 필요한 질문 (예: "고객 수는?", "매출 통계는?", "이슈 몇 건?", "스캔 실패 몇 개?")
 - "vector_search": 법령/규정/문서 검색이 필요한 질문 (예: "개인정보보호법은?", "암호화 규정은?", "법령 조항", "규정 내용")
 - "both": DB 조회와 법령 검색이 모두 필요한 질문
 - "general": 일반 대화 또는 위 유형에 해당하지 않는 질문
 
 중요 규칙:
-1. "법", "규정", "조항", "법령", "개인정보보호법" 등의 키워드가 있으면 "vector_search"
-2. "고객", "매출", "통계", "데이터", "테이블" 등의 키워드가 있으면 "db_query"
+1. "법", "규정", "조항", "법령", "개인정보보호법" 같은 법령/규정 질의면 "vector_search"
+2. "몇 개/개수/건수/통계/집계/카운트/count" 처럼 수량을 묻고, 대상이 시스템/서비스/서버/파일/스캔/이슈/오류/연결/작업/로그 등 운영 데이터이면 "db_query"
+3. 질문이 특정 DB 테이블/컬럼을 직접 언급하지 않아도, 운영/관제 지표(이슈 수, 실패 수, 처리 건수 등)면 "db_query"로 분류하세요.
 3. 분류 결과만 한 단어로 출력하세요. 다른 설명이나 텍스트는 포함하지 마세요.
 
 예시: vector_search"""
@@ -41,15 +42,20 @@ def classify(state: ChatbotState) -> ChatbotState:
     try:
         user_question = state.get("user_question", "")
         messages = state.get("messages", [])
+        conversation_summary = (state.get("conversation_summary") or "").strip()
         
         logger.info(f"질문 분류 시작: {user_question[:50]}...")
         
-        # 대화 맥락 구성 (최근 3개 메시지)
+        # 대화 맥락 구성 (요약 + 최근 3개 메시지)
         context_messages = messages[-3:] if len(messages) > 0 else []
-        context = "\n".join([
+        recent_context = "\n".join([
             f"{msg.get('role', 'unknown')}: {msg.get('content', '')}"
             for msg in context_messages
         ]) if context_messages else "대화 맥락 없음"
+        if conversation_summary:
+            context = f"이전 대화 요약: {conversation_summary}\n\n최근 대화:\n{recent_context}"
+        else:
+            context = recent_context
         
         # 프롬프트 생성
         prompt = PromptTemplate(

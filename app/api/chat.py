@@ -63,7 +63,6 @@ async def chatbot(
         initial_state = {
             "user_question": request.question,
             "conversation_id": request.conversation_id,
-            "messages": [],
             "query_type": "",
             "db_result": None,
             "vector_docs": [],
