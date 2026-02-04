@@ -70,6 +70,7 @@ class EncryptionCheckResult(BaseModel):
     tableName: str
     columnName: str
     piiType: str
+    keyColumn: str  # 암호화 체크에 사용된 PK 컬럼명
     totalRecordsCount: int
     encRecordsCount: int
     unencRecordsKeys: List[Any]  # 미암호화(PII 감지) 행의 PK 값 목록

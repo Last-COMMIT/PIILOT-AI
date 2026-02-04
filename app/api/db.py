@@ -76,6 +76,7 @@ async def check_encryption(
                 tableName=item.tableName,
                 columnName=item.columnName,
                 piiType=item.piiType,
+                keyColumn=classification_result.get("key_column", "id"),
                 totalRecordsCount=classification_result.get("total_records", 0),
                 encRecordsCount=classification_result.get("encrypted_records", 0),
                 unencRecordsKeys=classification_result.get("unenc_record_keys", []),
