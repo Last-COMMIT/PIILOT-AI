@@ -120,20 +120,22 @@ async def chatbot(
 
 @router.post("/upload-regulations", response_model=RegulationUploadResponse)
 async def upload_pdf(request: RegulationUploadRequest):
-    """PDF 파일을 벡터 DB에 저장"""
-    logger.info(f"PDF 처리 요청: {request.file_path}")
-    
+    """PDF 파일을 벡터 DB에 저장 (로컬 파일 또는 S3 URL 지원)"""
+    logger.info(f"법규 PDF 임베딩 요청: {request.file_path}")
+
     try:
         processor = get_regulation_upload()
         await processor(request.file_path)
-        
-        logger.info(f"PDF 처리 완료: {request.file_path}")
+
+        logger.info(f"법규 PDF 임베딩 완료: {request.file_path}")
         return RegulationUploadResponse(
-            status="PDF 파일이 성공적으로 벡터 DB에 저장되었습니다."
+            success=True,
+            message="임베딩 완료"
         )
-    
+
     except Exception as e:
-        logger.error(f"PDF 처리 중 오류 발생: {str(e)}", exc_info=True)
+        logger.error(f"법규 PDF 임베딩 실패: {str(e)}", exc_info=True)
         return RegulationUploadResponse(
-            status=f"PDF 처리 중 오류가 발생했습니다: {str(e)}"
+            success=False,
+            message=f"임베딩 실패: {str(e)}"
         )

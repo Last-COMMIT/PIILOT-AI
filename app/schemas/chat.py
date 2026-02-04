@@ -59,4 +59,5 @@ class LangGraphChatResponse(BaseModel):
 
 class RegulationUploadResponse(BaseModel):
     """법령 PDF 업로드 응답"""
-    status: str
+    success: bool
+    message: str
