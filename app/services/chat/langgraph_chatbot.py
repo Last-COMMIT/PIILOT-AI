@@ -13,6 +13,9 @@ from app.services.chat.nodes.relevance_check import check_relevance
 from app.services.chat.nodes.rerank import rerank
 from app.services.chat.nodes.answer_generation import generate_answer
 from app.services.chat.nodes.hallucination_check import check_hallucination
+from app.services.chat.nodes.multi_aspect_evaluation import multi_aspect_evaluation
+from app.services.chat.nodes.entity_memory import extract_entities
+from app.services.chat.nodes.output_validation import validate_output
 from app.services.chat.routers.routing import (
     route_after_classify,
     route_after_db,
@@ -47,6 +50,9 @@ def create_chatbot_app():
         workflow.add_node("rerank", rerank)
         workflow.add_node("generate_answer", generate_answer)
         workflow.add_node("check_hallucination", check_hallucination)
+        workflow.add_node("multi_aspect_evaluation", multi_aspect_evaluation)
+        workflow.add_node("extract_entities", extract_entities)
+        workflow.add_node("validate_output", validate_output)
         workflow.add_node("save_memory", save_memory)
         
         # 시작점 설정
@@ -57,6 +63,10 @@ def create_chatbot_app():
         workflow.add_edge("both_query", "check_relevance")
         workflow.add_edge("rerank", "generate_answer")
         workflow.add_edge("generate_answer", "check_hallucination")
+        # check_hallucination 이후는 조건부 엣지로 처리 (고정 엣지 제거)
+        workflow.add_edge("multi_aspect_evaluation", "extract_entities")
+        workflow.add_edge("extract_entities", "validate_output")
+        workflow.add_edge("validate_output", "save_memory")
         workflow.add_edge("save_memory", END)
         
         # 조건부 엣지
@@ -100,7 +110,7 @@ def create_chatbot_app():
             "check_hallucination",
             route_after_hallucination,
             {
-                "save_memory": "save_memory",
+                "multi_aspect_evaluation": "multi_aspect_evaluation",  # 평가 진행
                 "generate_answer": "generate_answer"  # 재생성 루프
             }
         )

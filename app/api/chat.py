@@ -116,9 +116,22 @@ async def chatbot(
 
     except Exception as e:
         total_elapsed = time.time() - total_start_time
-        logger.error(f"[LangGraph 챗봇 실패] 총 소요 시간: {total_elapsed:.2f}초, 오류: {str(e)}", exc_info=True)
+        error_msg = str(e)
+        logger.error(f"[LangGraph 챗봇 실패] 총 소요 시간: {total_elapsed:.2f}초, 오류: {error_msg}", exc_info=True)
+        
+        # 사용자에게는 친화적인 메시지만 표시 (기술적 오류 내용은 숨김)
+        user_friendly_message = "죄송합니다. 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        
+        # 특정 오류 타입에 따른 처리
+        if "INVALID_CONCURRENT_GRAPH_UPDATE" in error_msg or "messages" in error_msg.lower():
+            logger.error("State 충돌 오류 발생 - LangGraph State 업데이트 문제")
+        elif "timeout" in error_msg.lower() or "time limit" in error_msg.lower():
+            user_friendly_message = "죄송합니다. 처리 시간이 초과되었습니다. 질문을 간단히 다시 작성해 주세요."
+        elif "connection" in error_msg.lower() or "network" in error_msg.lower():
+            user_friendly_message = "죄송합니다. 네트워크 연결 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        
         return LangGraphChatResponse(
-            answer=f"죄송합니다. 챗봇 실행 중 오류가 발생했습니다: {str(e)}",
+            answer=user_friendly_message,
             sources=[],
         )
 

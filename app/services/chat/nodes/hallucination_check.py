@@ -61,8 +61,16 @@ def check_hallucination(state: ChatbotState) -> ChatbotState:
         vector_docs = state.get("vector_docs", [])
         if not reranked_docs and not vector_docs:
             # "자료 없음" 답변이면 OK
-            if "자료 없음" in final_answer or "찾을 수 없" in final_answer or "정보 없" in final_answer:
-                logger.info("자료 없음 답변이므로 OK")
+            if "자료 없음" in final_answer or "찾을 수 없" in final_answer or "정보 없" in final_answer or "보안상의 이유" in final_answer:
+                logger.info("자료 없음 또는 보안 거부 답변이므로 OK")
+                state["hallucination_score"] = 1.0
+                state["is_grounded"] = True
+                return state
+            # 참고 문서가 없고 일반 질문인 경우: 재생성 루프 방지를 위해 통과 처리
+            # (general 타입 질문은 참고 문서가 없어도 정상)
+            query_type = state.get("query_type", "")
+            if query_type == "general":
+                logger.info("일반 질문이고 참고 문서 없음, 통과 처리")
                 state["hallucination_score"] = 1.0
                 state["is_grounded"] = True
                 return state

@@ -130,6 +130,48 @@ def get_db_schema() -> Optional[SQLDatabase]:
         return None
 
 
+def _add_sql_result_explanation(result_text: str, question: str) -> str:
+    """
+    SQL 결과에 간단한 설명 추가 (고도화)
+    
+    Args:
+        result_text: SQL 쿼리 결과 텍스트
+        question: 사용자 질문
+    
+    Returns:
+        설명이 추가된 결과 텍스트
+    """
+    if not result_text or len(result_text.strip()) < 10:
+        return result_text
+    
+    # 간단한 구조 분석
+    lines = result_text.strip().split('\n')
+    num_lines = len([l for l in lines if l.strip()])
+    
+    # 숫자 패턴 감지 (개수, 통계 등)
+    import re
+    numbers = re.findall(r'\d+', result_text)
+    
+    # 설명 추가 (간단하게)
+    explanation_parts = []
+    
+    if num_lines == 0:
+        explanation_parts.append("[결과 없음]")
+    elif num_lines == 1:
+        explanation_parts.append(f"[단일 결과: {num_lines}개 행]")
+    else:
+        explanation_parts.append(f"[조회 결과: {num_lines}개 행]")
+    
+    if numbers:
+        explanation_parts.append(f"[수치 데이터 포함: {len(numbers)}개 숫자]")
+    
+    if explanation_parts:
+        explanation = " ".join(explanation_parts)
+        return f"{result_text}\n\n{explanation}"
+    
+    return result_text
+
+
 def _filter_sensitive_data(result_text: str) -> str:
     """
     SQL 쿼리 결과에서 민감한 정보(비밀번호, 패스워드 등) 및 users 테이블 정보 제거
@@ -351,10 +393,11 @@ def generate_sql_query_and_execute(question: str, context: Optional[Dict] = None
                 logger.warning("SQL Agent 파싱 에러 발생, 결과 추출 시도")
                 extracted_result = _extract_data_from_agent_output(result_text)
                 if extracted_result:
-                    # 추출된 결과도 필터링
+                    # 추출된 결과도 필터링 및 설명 추가
                     filtered_extracted = _filter_sensitive_data(extracted_result)
-                    logger.info(f"파싱 에러에서 결과 추출 성공: {filtered_extracted[:100]}...")
-                    return filtered_extracted
+                    explained_result = _add_sql_result_explanation(filtered_extracted, question)
+                    logger.info(f"파싱 에러에서 결과 추출 성공: {explained_result[:100]}...")
+                    return explained_result
                 else:
                     logger.warning("파싱 에러에서 결과 추출 실패")
                     return None
@@ -362,8 +405,11 @@ def generate_sql_query_and_execute(question: str, context: Optional[Dict] = None
             # 민감한 정보 필터링
             filtered_result = _filter_sensitive_data(result_text)
             
-            logger.info(f"SQL Agent 실행 완료: {filtered_result[:100]}...")
-            return filtered_result
+            # SQL 결과 설명 추가 (고도화)
+            explained_result = _add_sql_result_explanation(filtered_result, question)
+            
+            logger.info(f"SQL Agent 실행 완료: {explained_result[:100]}...")
+            return explained_result
         else:
             logger.warning("SQL Agent 실행 결과가 비어있음")
             return None

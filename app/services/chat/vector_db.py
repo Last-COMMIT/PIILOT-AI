@@ -127,14 +127,15 @@ class VectorDB:
         """벡터를 PostgreSQL pgvector 형식 문자열로 변환"""
         return '[' + ','.join(map(str, vector.tolist())) + ']'
     
-    def search(self, query: str, n_results: int = 5, law_name_filter: Optional[str] = None) -> List[Dict]:
+    def search(self, query: str, n_results: int = 5, law_name_filter: Optional[str] = None, use_hybrid: bool = True) -> List[Dict]:
         """
-        법령 데이터 검색 (읽기 전용)
+        법령 데이터 검색 (Hybrid Search: BM25 + Vector)
         
         Args:
             query: 검색 쿼리
             n_results: 반환할 결과 수
             law_name_filter: 법령명 필터 (선택사항)
+            use_hybrid: Hybrid Search 사용 여부 (기본값: True)
             
         Returns:
             [
@@ -150,7 +151,7 @@ class VectorDB:
         try:
             import time
             search_start_time = time.time()
-            logger.debug(f"법령 검색 시작: query='{query[:50]}...', n_results={n_results}")
+            logger.debug(f"법령 검색 시작: query='{query[:50]}...', n_results={n_results}, hybrid={use_hybrid}")
             
             # 1. 질문을 임베딩 벡터로 변환
             logger.debug("질문 임베딩 생성 중...")
@@ -172,40 +173,149 @@ class VectorDB:
             logger.debug(f"✓ DB 연결 완료 (소요 시간: {db_connect_time:.2f}초)")
             
             try:
-                logger.debug(f"SQL 쿼리 실행 중... (table={self.table_name})")
+                logger.debug(f"SQL 쿼리 실행 중... (table={self.table_name}, hybrid={use_hybrid})")
                 query_start_time = time.time()
                 with conn.cursor() as cursor:
-                    if law_name_filter:
-                        # 법령명 필터링 포함
-                        cursor.execute(f"""
-                            SELECT 
-                                id,
-                                document_title,
-                                law_name,
-                                article,
-                                chunk_text,
-                                page,
-                                1 - (embedding <=> %s::vector) as similarity
-                            FROM {self.table_name}
-                            WHERE law_name = %s
-                            ORDER BY embedding <=> %s::vector
-                            LIMIT %s
-                        """, (query_vector_str, law_name_filter, query_vector_str, n_results))
+                    if use_hybrid:
+                        # Hybrid Search: BM25 (full-text search) + Vector Search
+                        # BM25 점수와 Vector 유사도를 가중 평균
+                        # BM25 가중치: 0.3, Vector 가중치: 0.7
+                        
+                        # BM25를 위한 검색어 준비 (PostgreSQL tsvector용)
+                        # 한국어는 형태소 분석이 필요하지만, 간단하게 키워드 검색 사용
+                        bm25_query = query.replace(" ", " | ")
+                        
+                        if law_name_filter:
+                            cursor.execute(f"""
+                                WITH vector_results AS (
+                                    SELECT 
+                                        id,
+                                        document_title,
+                                        law_name,
+                                        article,
+                                        chunk_text,
+                                        page,
+                                        1 - (embedding <=> %s::vector) as vector_similarity
+                                    FROM {self.table_name}
+                                    WHERE law_name = %s
+                                    ORDER BY embedding <=> %s::vector
+                                    LIMIT %s * 2
+                                ),
+                                bm25_results AS (
+                                    SELECT 
+                                        id,
+                                        document_title,
+                                        law_name,
+                                        article,
+                                        chunk_text,
+                                        page,
+                                        ts_rank_cd(
+                                            to_tsvector('simple', COALESCE(chunk_text, '') || ' ' || COALESCE(law_name, '') || ' ' || COALESCE(article, '')),
+                                            plainto_tsquery('simple', %s)
+                                        ) as bm25_score
+                                    FROM {self.table_name}
+                                    WHERE law_name = %s
+                                    AND (
+                                        to_tsvector('simple', COALESCE(chunk_text, '') || ' ' || COALESCE(law_name, '') || ' ' || COALESCE(article, ''))
+                                        @@ plainto_tsquery('simple', %s)
+                                    )
+                                    ORDER BY bm25_score DESC
+                                    LIMIT %s * 2
+                                )
+                                SELECT 
+                                    COALESCE(v.id, b.id) as id,
+                                    COALESCE(v.document_title, b.document_title) as document_title,
+                                    COALESCE(v.law_name, b.law_name) as law_name,
+                                    COALESCE(v.article, b.article) as article,
+                                    COALESCE(v.chunk_text, b.chunk_text) as chunk_text,
+                                    COALESCE(v.page, b.page) as page,
+                                    (COALESCE(v.vector_similarity, 0.0) * 0.7 + COALESCE(b.bm25_score, 0.0) * 0.3) as hybrid_score
+                                FROM vector_results v
+                                FULL OUTER JOIN bm25_results b ON v.id = b.id
+                                ORDER BY hybrid_score DESC
+                                LIMIT %s
+                            """, (query_vector_str, law_name_filter, query_vector_str, n_results, 
+                                  query, law_name_filter, query, n_results, n_results))
+                        else:
+                            cursor.execute(f"""
+                                WITH vector_results AS (
+                                    SELECT 
+                                        id,
+                                        document_title,
+                                        law_name,
+                                        article,
+                                        chunk_text,
+                                        page,
+                                        1 - (embedding <=> %s::vector) as vector_similarity
+                                    FROM {self.table_name}
+                                    ORDER BY embedding <=> %s::vector
+                                    LIMIT %s * 2
+                                ),
+                                bm25_results AS (
+                                    SELECT 
+                                        id,
+                                        document_title,
+                                        law_name,
+                                        article,
+                                        chunk_text,
+                                        page,
+                                        ts_rank_cd(
+                                            to_tsvector('simple', COALESCE(chunk_text, '') || ' ' || COALESCE(law_name, '') || ' ' || COALESCE(article, '')),
+                                            plainto_tsquery('simple', %s)
+                                        ) as bm25_score
+                                    FROM {self.table_name}
+                                    WHERE (
+                                        to_tsvector('simple', COALESCE(chunk_text, '') || ' ' || COALESCE(law_name, '') || ' ' || COALESCE(article, ''))
+                                        @@ plainto_tsquery('simple', %s)
+                                    )
+                                    ORDER BY bm25_score DESC
+                                    LIMIT %s * 2
+                                )
+                                SELECT 
+                                    COALESCE(v.id, b.id) as id,
+                                    COALESCE(v.document_title, b.document_title) as document_title,
+                                    COALESCE(v.law_name, b.law_name) as law_name,
+                                    COALESCE(v.article, b.article) as article,
+                                    COALESCE(v.chunk_text, b.chunk_text) as chunk_text,
+                                    COALESCE(v.page, b.page) as page,
+                                    (COALESCE(v.vector_similarity, 0.0) * 0.7 + COALESCE(b.bm25_score, 0.0) * 0.3) as hybrid_score
+                                FROM vector_results v
+                                FULL OUTER JOIN bm25_results b ON v.id = b.id
+                                ORDER BY hybrid_score DESC
+                                LIMIT %s
+                            """, (query_vector_str, query_vector_str, n_results, 
+                                  query, query, n_results, n_results))
                     else:
-                        # 전체 검색
-                        cursor.execute(f"""
-                            SELECT 
-                                id,
-                                document_title,
-                                law_name,
-                                article,
-                                chunk_text,
-                                page,
-                                1 - (embedding <=> %s::vector) as similarity
-                            FROM {self.table_name}
-                            ORDER BY embedding <=> %s::vector
-                            LIMIT %s
-                        """, (query_vector_str, query_vector_str, n_results))
+                        # 기존 Vector Search만 사용 (fallback)
+                        if law_name_filter:
+                            cursor.execute(f"""
+                                SELECT 
+                                    id,
+                                    document_title,
+                                    law_name,
+                                    article,
+                                    chunk_text,
+                                    page,
+                                    1 - (embedding <=> %s::vector) as similarity
+                                FROM {self.table_name}
+                                WHERE law_name = %s
+                                ORDER BY embedding <=> %s::vector
+                                LIMIT %s
+                            """, (query_vector_str, law_name_filter, query_vector_str, n_results))
+                        else:
+                            cursor.execute(f"""
+                                SELECT 
+                                    id,
+                                    document_title,
+                                    law_name,
+                                    article,
+                                    chunk_text,
+                                    page,
+                                    1 - (embedding <=> %s::vector) as similarity
+                                FROM {self.table_name}
+                                ORDER BY embedding <=> %s::vector
+                                LIMIT %s
+                            """, (query_vector_str, query_vector_str, n_results))
                     
                     results = cursor.fetchall()
                     query_time = time.time() - query_start_time
@@ -215,6 +325,8 @@ class VectorDB:
                     logger.debug("검색 결과 포맷팅 중...")
                     formatted_results = []
                     for row in results:
+                        # hybrid_score 또는 similarity 사용
+                        score = float(row[6]) if len(row) > 6 else 0.0
                         formatted_results.append({
                             "id": str(row[0]),
                             "text": row[4],  # chunk_text
@@ -224,13 +336,23 @@ class VectorDB:
                                 "article": row[3],
                                 "page": row[5]
                             },
-                            "distance": 1.0 - float(row[6])  # similarity를 distance로 변환
+                            "distance": 1.0 - score  # similarity/hybrid_score를 distance로 변환
                         })
                     
                     total_search_time = time.time() - search_start_time
-                    logger.info(f"법령 검색 완료: {len(formatted_results)}개 결과 반환 (총 소요 시간: {total_search_time:.2f}초)")
+                    logger.info(f"법령 검색 완료: {len(formatted_results)}개 결과 반환 (총 소요 시간: {total_search_time:.2f}초, hybrid={use_hybrid})")
                     return formatted_results
                     
+            except Exception as e:
+                # Hybrid Search 실패 시 Vector Search로 fallback
+                if use_hybrid:
+                    logger.warning(f"Hybrid Search 실패, Vector Search로 fallback: {e}")
+                    try:
+                        return self.search(query, n_results, law_name_filter, use_hybrid=False)
+                    except Exception as fallback_error:
+                        logger.error(f"Vector Search fallback도 실패: {fallback_error}")
+                        return []
+                raise
             finally:
                 conn.close()
                 
