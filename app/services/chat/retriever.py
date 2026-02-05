@@ -19,10 +19,10 @@ class CustomLawRetriever(BaseRetriever):
     def __init__(self, vector_db: VectorDB, n_results: int = 10):
         super().__init__(vector_db=vector_db, n_results=n_results)
     
-    def _get_relevant_documents(self, query: str) -> List[Document]:
-        """질문에 대한 유사한 법령 청크 검색"""
-        logger.debug(f"CustomLawRetriever: Vector DB 검색 시작 (n_results={self.n_results})")
-        results = self.vector_db.search(query, n_results=self.n_results)
+    def _get_relevant_documents(self, query: str, use_hybrid: bool = True) -> List[Document]:
+        """질문에 대한 유사한 법령 청크 검색 (Hybrid Search 지원)"""
+        logger.debug(f"CustomLawRetriever: Vector DB 검색 시작 (n_results={self.n_results}, hybrid={use_hybrid})")
+        results = self.vector_db.search(query, n_results=self.n_results, use_hybrid=use_hybrid)
         logger.debug(f"CustomLawRetriever: Vector DB 검색 완료 ({len(results)}개 결과)")
         
         # 검색 결과를 Document 객체 리스트로 변환

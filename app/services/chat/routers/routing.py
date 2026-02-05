@@ -96,7 +96,7 @@ def route_after_hallucination(state: ChatbotState) -> str:
     주의: 라우팅 함수는 state를 수정할 수 없습니다. 카운터 증가는 노드에서 처리해야 합니다.
     
     Returns:
-        "save_memory" | "generate_answer" (재생성)
+        "multi_aspect_evaluation" | "generate_answer" (재생성)
     """
     is_grounded = state.get("is_grounded", False)
     hallucination_score = state.get("hallucination_score", 0.0)
@@ -104,10 +104,10 @@ def route_after_hallucination(state: ChatbotState) -> str:
     
     logger.debug(f"route_after_hallucination: is_grounded={is_grounded}, score={hallucination_score:.2f}, retry={generation_retry_count}")
     
-    # 근거 충분 → save_memory
+    # 근거 충분 → multi_aspect_evaluation (고도화 평가)
     if is_grounded and hallucination_score >= GROUNDING_THRESHOLD:
-        logger.info("근거 충분, save_memory로 이동")
-        return "save_memory"
+        logger.info("근거 충분, multi_aspect_evaluation으로 이동")
+        return "multi_aspect_evaluation"
     
     # 재생성 가능 → generate_answer (재생성 루프)
     # 주의: 카운터 증가는 generate_answer 노드에서 처리
@@ -115,8 +115,8 @@ def route_after_hallucination(state: ChatbotState) -> str:
         logger.info(f"근거 부족, 재생성 시도 {generation_retry_count + 1}/{MAX_GENERATION_RETRIES}")
         return "generate_answer"
     
-    # 재생성 초과 → save_memory (경고와 함께 저장)
+    # 재생성 초과 → multi_aspect_evaluation (경고와 함께 평가)
     # 주의: 경고 메시지 추가는 save_memory 노드에서 처리
     else:
-        logger.warning("재생성 재시도 초과, 경고와 함께 save_memory로 이동")
-        return "save_memory"
+        logger.warning("재생성 재시도 초과, 경고와 함께 multi_aspect_evaluation으로 이동")
+        return "multi_aspect_evaluation"

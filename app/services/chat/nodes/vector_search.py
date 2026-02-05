@@ -48,12 +48,15 @@ def vector_search(state: ChatbotState) -> ChatbotState:
             query = optimize_query(user_question, search_query_version)
             logger.debug(f"쿼리 개선 적용: '{user_question}' -> '{query}'")
         
-        # VectorDB 및 CustomLawRetriever 사용
+        # VectorDB 및 CustomLawRetriever 사용 (Hybrid Search 활성화)
         vector_db = VectorDB()
         retriever = CustomLawRetriever(vector_db, n_results=VECTOR_SEARCH_K)
         
-        # 검색 실행
-        docs = retriever._get_relevant_documents(query)
+        # Hybrid Search 사용 (기본값: True)
+        use_hybrid = True
+        
+        # 검색 실행 (Hybrid Search)
+        docs = retriever._get_relevant_documents(query, use_hybrid=use_hybrid)
         
         # 결과를 state에 저장
         state["vector_docs"] = [
