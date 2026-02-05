@@ -291,7 +291,11 @@ class EncryptionClassifier:
             query = text(f"SELECT {qk}, {qc} FROM {from_clause}")
             with target_engine.connect() as conn:
                 df = pd.read_sql(query, conn)
-            total_records = len(df)
+            
+            # null 값 제외: null이 아닌 행만 필터링
+            df_non_null = df[df[column_name].notna()].copy()
+            total_records = len(df_non_null)  # null 제외한 총 레코드 수
+            
             if total_records == 0:
                 return {
                     "table_name": table_name,
@@ -301,20 +305,22 @@ class EncryptionClassifier:
                     "total_records": 0,
                     "encrypted_records": 0,
                     "unenc_record_keys": [],
-                    "reason": "데이터 없음",
+                    "reason": "데이터 없음 (모든 값이 null)",
                 }
-            # null/빈 값은 ""로 통일해 행 순서 유지 (키와 1:1 매칭)
+            
+            # null이 아닌 값만 처리 (빈 문자열도 포함)
             values = [
-                str(val).strip() if pd.notna(val) and str(val).strip() else ""
-                for val in df[column_name]
+                str(val).strip() if str(val).strip() else ""
+                for val in df_non_null[column_name]
             ]
             pii_results = classify_batch(values, model_dir=self.model_path)
             encrypted_count = sum(1 for r in pii_results if r == "NONE")
+            
             # 미암호화(PII 감지) 행의 키 수집 (JSON 직렬화 가능한 타입으로)
             unenc_keys: List[Any] = []
             for i in range(len(pii_results)):
                 if pii_results[i] != "NONE":
-                    key_val = df.iloc[i][key_column]
+                    key_val = df_non_null.iloc[i][key_column]
                     if pd.isna(key_val):
                         continue
                     if isinstance(key_val, (np.integer, np.int64, np.int32)):
