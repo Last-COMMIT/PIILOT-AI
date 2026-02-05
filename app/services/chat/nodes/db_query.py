@@ -34,10 +34,11 @@ def db_query(state: ChatbotState) -> ChatbotState:
         if db_result and db_result not in ["DB 조회를 수행할 수 없습니다.", "DB 조회 결과 없음"]:
             state["db_result"] = db_result
         else:
-            logger.warning("SQL Agent 실행 실패, vector_search로 폴백")
+            logger.warning("SQL Agent 실행 실패")
             state["db_result"] = "DB 조회를 수행할 수 없습니다."
-            # DB 조회 실패 시 vector_search로 폴백하기 위해 query_type 변경
-            state["query_type"] = "vector_search"
+            # DB 질문인 경우 vector_search로 폴백하지 않음
+            # (DB 관련 질문은 법령 검색으로 폴백해도 의미가 없으므로)
+            # query_type은 그대로 유지하여 상위 라우터에서 처리하도록 함
         
         logger.info(f"DB 조회 완료: {state['db_result'][:100]}...")
         return state
