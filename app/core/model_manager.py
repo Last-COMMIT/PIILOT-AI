@@ -202,7 +202,12 @@ class ModelManager:
         
         # 2. HuggingFace 모델들 다운로드
         logger.info("\n[HuggingFace 모델 다운로드]")
+        from app.services.chat.config import LLM_TYPE
         for model_key, model_info in cls.HUGGINGFACE_MODELS.items():
+            # LLM_TYPE이 "openai"이면 로컬 LLM 다운로드 스킵 (메모리 절약)
+            if model_key == "llm" and LLM_TYPE == "openai":
+                logger.info(f"⏭ {model_key} 모델 스킵 (LLM_TYPE=openai, 필요 시 자동 다운로드)")
+                continue
             model_name = model_info["name"]
             model_type = model_info["type"]
             try:
