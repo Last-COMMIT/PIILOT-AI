@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+
+# Python 가상환경 (Docker 안에서 새로 설치하므로 불필요)
+venv/
+env/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# AI 모델 캐시 (너무 큼, Docker Volume으로 관리)
+models/huggingface/
+models/whisper/
+models/flashrank/
+
+# 런타임 생성 파일 (이미지에 필요 없음)
+output_file/
+logs/
+*.log
+
+# 환경변수 파일 (비밀 정보)
+.env
+.env.local
+
+# 테스트/문서
+tests/
+*.md
+
+# OS 파일
+.DS_Store
+
+# Claude 설정
+.claude
