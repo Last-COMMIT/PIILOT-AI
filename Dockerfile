@@ -10,14 +10,15 @@ FROM python:3.11-slim
 
 # 시스템 의존성 설치
 # - build-essential, libpq-dev: Python 패키지 빌드에 필요
-# - libgl1-mesa-glx, libglib2.0-0, libsm6, libxext6, libxrender-dev: OpenCV (이미지 처리)
+# - libgl1 (libgl1-mesa-dri): OpenCV용 OpenGL (libgl1-mesa-glx는 Debian trixie에서 삭제됨)
+# - libglib2.0-0, libsm6, libxext6, libxrender-dev: OpenCV (이미지 처리)
 # - libgomp1: XGBoost (머신러닝)
 # - ffmpeg: 오디오/비디오 처리 (Whisper STT, 비디오 마스킹)
 # - curl: 헬스체크용
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
