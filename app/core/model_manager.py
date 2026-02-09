@@ -3,6 +3,7 @@
 FastAPI 시작 시 모든 모델을 다운로드하여 준비
 """
 import os
+import gc
 from pathlib import Path
 from app.core.logging import logger
 from app.core.config import get_project_root
@@ -72,24 +73,34 @@ class ModelManager:
     
     @classmethod
     def download_huggingface_model(cls, model_name: str, model_type: str = "auto"):
-        """HuggingFace 모델 다운로드"""
+        """HuggingFace 모델 다운로드 (다운로드 후 즉시 메모리 해제)"""
         try:
             logger.info(f"모델 다운로드 중: {model_name}")
-            
+
             if model_type == "tokenizer":
-                AutoTokenizer.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
+                tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
+                del tokenizer
             elif model_type == "model":
-                AutoModel.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
+                model = AutoModel.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
+                del model
             elif model_type == "token_classification":
                 # Tokenizer와 Model 모두 필요
-                AutoTokenizer.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
-                AutoModelForTokenClassification.from_pretrained(
+                tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
+                del tokenizer
+                gc.collect()
+                model = AutoModelForTokenClassification.from_pretrained(
                     model_name, cache_dir=cls.CACHE_DIR
                 )
+                del model
             else:  # auto - tokenizer와 model 모두
-                AutoTokenizer.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
-                AutoModel.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
-            
+                tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
+                del tokenizer
+                gc.collect()
+                model = AutoModel.from_pretrained(model_name, cache_dir=cls.CACHE_DIR)
+                del model
+
+            # 메모리 즉시 해제 (다음 모델 다운로드 전에 공간 확보)
+            gc.collect()
             logger.info(f"✓ 모델 다운로드 완료: {model_name}")
         except Exception as e:
             logger.error(f"✗ 모델 다운로드 실패: {model_name} - {e}")
@@ -114,6 +125,7 @@ class ModelManager:
             )
             logger.info(f"✓ Whisper 모델 다운로드 완료: {model_size}")
             del model  # 메모리 해제
+            gc.collect()
         except ImportError as e:
             logger.warning(f"faster-whisper이 설치되지 않았습니다. Whisper 기능을 사용할 수 없습니다: {e}")
             raise
@@ -150,6 +162,7 @@ class ModelManager:
                 raise FileNotFoundError(f"모델 파일이 생성되지 않았습니다: {onnx_file}")
             
             del ranker  # 메모리 해제
+            gc.collect()
             
         except ImportError as e:
             logger.warning(f"flashrank이 설치되지 않았습니다. Flashrank 기능을 사용할 수 없습니다: {e}")

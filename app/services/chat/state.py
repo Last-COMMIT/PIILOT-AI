@@ -3,19 +3,44 @@ LangGraph 챗봇 State 정의
 """
 from typing import TypedDict, List, Dict, Optional, Annotated
 from operator import add
+from app.core.logging import logger
 
 
 def reduce_messages(left: List[Dict], right: List[Dict]) -> List[Dict]:
     """
     messages 리스트 병합 reducer
     LangGraph에서 여러 노드가 messages를 업데이트할 때 사용
+    
+    옵션 A: load_memory에서 설정한 제한된 메시지 리스트를 우선시
+    - right가 제한된 길이(MAX_MESSAGES 이하)이면 우선시 (load_memory에서 설정)
+    - left가 비정상적으로 길면(누적 버그) right를 우선시
     """
+    from app.services.chat.config import MAX_MESSAGES
+    
     if not left:
         return right if right else []
     if not right:
         return left
-    # 두 리스트를 합치되, 중복 제거는 하지 않음 (순서 유지)
-    return left + right
+    
+    # 옵션 A: load_memory에서 설정한 제한된 메시지 우선시
+    # right가 MAX_MESSAGES 이하이면 load_memory에서 제한한 것으로 간주하여 우선시
+    if len(right) <= MAX_MESSAGES:
+        return right
+    
+    # left가 비정상적으로 길면(누적 버그) right를 우선시
+    if len(left) > MAX_MESSAGES * 10:
+        logger.warning(f"⚠️ reduce_messages: left가 비정상적으로 길어서 right 우선시: {len(left)}개 -> {len(right)}개")
+        return right if right else []
+    
+    # 일반적인 경우: 두 리스트를 합치되, 중복 제거는 하지 않음 (순서 유지)
+    # 단, 결과가 MAX_MESSAGES를 초과하지 않도록 제한
+    merged = left + right
+    if len(merged) > MAX_MESSAGES * 2:
+        # 비정상적으로 길어지면 최근 것만 유지
+        logger.warning(f"⚠️ reduce_messages: 병합 결과가 너무 길어서 제한: {len(merged)}개 -> {MAX_MESSAGES * 2}개")
+        return merged[-(MAX_MESSAGES * 2):]
+    
+    return merged
 
 
 def reduce_conversation_summary(left: Optional[str], right: Optional[str]) -> Optional[str]:
@@ -93,13 +118,42 @@ def reduce_int(left: int, right: int) -> int:
     return max(left, right)
 
 
+def reduce_counter_int(left: int, right: int) -> int:
+    """
+    카운터용 int 필드 reducer: 초기화(0) 우선, 그 외에는 증가하는 값만 허용
+    - 0이 오면 항상 0 반환 (초기화 의미)
+    - 그 외에는 더 큰 값 반환 (감소 방지)
+    """
+    # 초기화(0)가 오면 항상 0 반환
+    if right == 0:
+        return 0
+    if left == 0:
+        return right
+    # 둘 다 0이 아니면 더 큰 값 반환
+    return max(left, right)
+
+
 def reduce_list(left: List, right: List) -> List:
-    """리스트 필드 reducer: 병합"""
+    """리스트 필드 reducer: 병합 (일반적인 경우)"""
     if not left:
         return right if right else []
     if not right:
         return left
     return left + right
+
+
+def reduce_replace_list(left: List, right: List) -> List:
+    """
+    리스트 필드 reducer: 완전 교체 (문서 리스트용)
+    문서 검색 결과는 항상 최신 값으로 완전히 교체되어야 함
+    
+    주의: 빈 리스트 []도 유효한 교체값임 (초기화 용도)
+    - right가 None이 아니면 항상 right로 교체 ([]도 포함)
+    - right가 None일 때만 left 유지
+    """
+    if right is not None:
+        return right
+    return left if left else []
 
 
 def reduce_optional_list(left: Optional[List], right: Optional[List]) -> Optional[List]:
@@ -152,10 +206,10 @@ class ChatbotState(TypedDict):
     db_result: Annotated[Optional[str], reduce_optional_str]  # DB 조회 결과
     
     # Vector
-    vector_docs: Annotated[List[Dict], reduce_list]  # [{content, metadata, similarity_score}]
+    vector_docs: Annotated[List[Dict], reduce_replace_list]  # [{content, metadata, similarity_score}]
     
     # Rerank
-    reranked_docs: Annotated[List[Dict], reduce_list]  # [{content, metadata, score}]
+    reranked_docs: Annotated[List[Dict], reduce_replace_list]  # [{content, metadata, score}]
     
     # 답변
     final_answer: Annotated[str, reduce_str]  # 최종 생성된 답변
@@ -178,7 +232,7 @@ class ChatbotState(TypedDict):
     # 고도화: Output Validation
     validation_issues: Annotated[Optional[List[str]], reduce_optional_list]  # 검증 이슈 리스트
     
-    # 재시도 카운터
-    retry_count: Annotated[int, reduce_int]  # 검색 재시도 횟수
-    search_query_version: Annotated[int, reduce_int]  # 검색 쿼리 버전 (재시도 시 개선)
-    generation_retry_count: Annotated[int, reduce_int]  # 답변 재생성 횟수
+    # 재시도 카운터 (초기화 우선)
+    retry_count: Annotated[int, reduce_counter_int]  # 검색 재시도 횟수
+    search_query_version: Annotated[int, reduce_counter_int]  # 검색 쿼리 버전 (재시도 시 개선)
+    generation_retry_count: Annotated[int, reduce_counter_int]  # 답변 재생성 횟수

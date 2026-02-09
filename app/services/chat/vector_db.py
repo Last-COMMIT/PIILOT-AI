@@ -69,12 +69,13 @@ class VectorDB:
                 )
                 logger.debug("✓ Tokenizer 로딩 완료")
                 
-                logger.debug("Model 로딩 중... (시간이 오래 걸릴 수 있습니다)")
+                logger.debug("Model 로딩 중 (float16)... (시간이 오래 걸릴 수 있습니다)")
                 VectorDB._model = AutoModel.from_pretrained(
-                    model_name, cache_dir=cache_dir
+                    model_name, cache_dir=cache_dir,
+                    torch_dtype=torch.float16,  # float32(~2.24GB) → float16(~1.12GB) 메모리 절반 절약
                 )
                 VectorDB._model.eval()
-                logger.debug("✓ Model 로딩 완료")
+                logger.debug("✓ Model 로딩 완료 (float16)")
                 
                 model_load_time = time.time() - model_start_time
                 logger.info(f"✓ 임베딩 모델 로드 완료! (소요 시간: {model_load_time:.2f}초)")
