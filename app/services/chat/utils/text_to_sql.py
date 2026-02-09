@@ -26,11 +26,31 @@ def _build_table_schema_guide() -> str:
 - db_pii_issues: id, column_id, db_server_connection_id, issue_status (ACTIVE/RESOLVED)
 - file_pii: id, file_id, total_piis_count, masked_piis_count
 - file_pii_issues: id, file_id, file_server_connection_id, issue_status
+- files: id, name, path, file_type, size, created_at, updated_at
+
+[테이블 관계 및 JOIN 가이드 - 매우 중요!]
+⚠️ 상세한 정보를 얻으려면 반드시 JOIN을 사용하세요:
+
+1. DB 관련:
+   - db_pii_columns (컬럼 정보) ←→ db_pii_issues (이슈 정보)
+     JOIN: db_pii_issues.column_id = db_pii_columns.id
+   - db_pii_issues ←→ db_server_connections (서버 정보)
+     JOIN: db_pii_issues.db_server_connection_id = db_server_connections.id
+   - 예: "어떤 컬럼에 문제가 있나요?" → db_pii_columns와 db_pii_issues를 JOIN하여 컬럼명, 위험도, 이슈 상태를 함께 조회
+
+2. 파일 관련:
+   - files (파일 정보) ←→ file_pii (PII 통계)
+     JOIN: file_pii.file_id = files.id
+   - files ←→ file_pii_issues (이슈 정보)
+     JOIN: file_pii_issues.file_id = files.id
+   - file_pii ←→ file_pii_issues
+     JOIN: file_pii_issues.file_id = file_pii.file_id
+   - 예: "어떤 파일에 문제가 있나요?" → files, file_pii, file_pii_issues를 JOIN하여 파일명, PII 개수, 이슈 상태를 함께 조회
 
 [중요]
 - 개수 질문: db_pii_columns.total_records_count, file_pii.total_piis_count 사용
-- 이슈 개수: db_pii_issues는 존재 여부만, 실제 개수는 db_pii_columns 참고
-- JOIN: db_pii_issues.column_id = db_pii_columns.id
+- 상세 정보 질문: 반드시 JOIN을 사용하여 관련 테이블의 정보를 함께 조회하세요
+- 이슈가 있는 항목 조회: 이슈 테이블과 메인 테이블을 JOIN하여 상세 정보를 함께 보여주세요
 """
 
 
@@ -57,9 +77,33 @@ def _build_query_examples() -> str:
     return """
 [쿼리 샘플 - 유사한 질문이면 이 패턴 사용]
 
-1. DB 서버별 이슈: "DB 서버별 이슈 개수" → SELECT dsc.connection_name, COUNT(dpi.id) FROM db_pii_issues dpi JOIN db_server_connections dsc ON dpi.db_server_connection_id = dsc.id WHERE dpi.issue_status = 'ACTIVE' GROUP BY dsc.connection_name;
-2. 파일 서버별 이슈: "파일 서버별 이슈 개수" → SELECT fsc.connection_name, COUNT(fpi.id) FROM file_pii_issues fpi JOIN file_server_connections fsc ON fpi.file_server_connection_id = fsc.id WHERE fpi.issue_status = 'ACTIVE' GROUP BY fsc.connection_name;
-3. 파일별 PII 개수: "파일별 PII 개수" → SELECT f.name, fp.total_piis_count FROM file_pii fp JOIN files f ON fp.file_id = f.id;
+1. DB 서버별 이슈 개수: "DB 서버별 이슈 개수" 
+   → SELECT dsc.connection_name, COUNT(dpi.id) FROM db_pii_issues dpi JOIN db_server_connections dsc ON dpi.db_server_connection_id = dsc.id WHERE dpi.issue_status = 'ACTIVE' GROUP BY dsc.connection_name;
+
+2. DB 컬럼별 상세 이슈 정보 (JOIN 필수!): "어떤 컬럼에 문제가 있나요?"
+   → SELECT dpc.name AS column_name, dpc.risk_level, dpc.total_records_count, dpi.issue_status, dsc.connection_name 
+     FROM db_pii_issues dpi 
+     JOIN db_pii_columns dpc ON dpi.column_id = dpc.id 
+     JOIN db_server_connections dsc ON dpi.db_server_connection_id = dsc.id 
+     WHERE dpi.issue_status = 'ACTIVE';
+
+3. 파일 서버별 이슈 개수: "파일 서버별 이슈 개수" 
+   → SELECT fsc.connection_name, COUNT(fpi.id) FROM file_pii_issues fpi JOIN file_server_connections fsc ON fpi.file_server_connection_id = fsc.id WHERE fpi.issue_status = 'ACTIVE' GROUP BY fsc.connection_name;
+
+4. 파일별 상세 PII 및 이슈 정보 (JOIN 필수!): "어떤 파일에 문제가 있나요?"
+   → SELECT f.name AS file_name, f.file_type, fp.total_piis_count, fp.masked_piis_count, fpi.issue_status 
+     FROM file_pii_issues fpi 
+     JOIN files f ON fpi.file_id = f.id 
+     JOIN file_pii fp ON fpi.file_id = fp.file_id 
+     WHERE fpi.issue_status = 'ACTIVE';
+
+5. 파일별 PII 개수: "파일별 PII 개수" 
+   → SELECT f.name, fp.total_piis_count FROM file_pii fp JOIN files f ON fp.file_id = f.id;
+
+[핵심 원칙]
+- 이슈나 문제를 조회할 때는 반드시 이슈 테이블과 메인 테이블을 JOIN하여 상세 정보를 함께 조회하세요
+- 파일 관련 질문: files 테이블과 JOIN하여 파일명을 반드시 포함하세요
+- DB 컬럼 관련 질문: db_pii_columns와 JOIN하여 컬럼명, 위험도 등을 함께 조회하세요
 """
 
 
@@ -346,8 +390,27 @@ def generate_sql_query_and_execute(question: str, context: Optional[Dict] = None
         
         output_format_instruction = "\n[출력 형식] 마크다운 없이 간단한 텍스트만 반환하세요.\n"
         
+        # JOIN 사용 강조 지시사항
+        join_instruction = """
+[매우 중요: JOIN 사용 원칙]
+⚠️ 상세한 정보를 조회할 때는 반드시 JOIN을 사용하세요:
+
+1. 파일 관련 질문:
+   - "어떤 파일에 문제가 있나요?" → files, file_pii, file_pii_issues를 JOIN하여 파일명, PII 개수, 이슈 상태를 함께 조회
+   - "파일별 이슈" → file_pii_issues와 files를 JOIN하여 파일명을 반드시 포함
+
+2. DB 컬럼 관련 질문:
+   - "어떤 컬럼에 문제가 있나요?" → db_pii_columns와 db_pii_issues를 JOIN하여 컬럼명, 위험도, 이슈 상태를 함께 조회
+   - "컬럼별 이슈" → db_pii_issues와 db_pii_columns를 JOIN하여 컬럼명을 반드시 포함
+
+3. 서버 관련 질문:
+   - 서버명을 보여줄 때는 db_server_connections 또는 file_server_connections와 JOIN
+
+⚠️ 단순 개수만 묻는 경우가 아니라면, 항상 관련 테이블을 JOIN하여 상세 정보를 함께 조회하세요!
+"""
+        
         # 간소화된 프롬프트 구조
-        full_question = f"{table_schema_guide}\n{date_and_schema_context}\n{security_instruction}\n[질문] {question}\n{query_examples}\n{output_format_instruction}"
+        full_question = f"{table_schema_guide}\n{date_and_schema_context}\n{security_instruction}\n{join_instruction}\n[질문] {question}\n{query_examples}\n{output_format_instruction}"
         
         # LLM 가져오기
         llm = get_answer_llm()
