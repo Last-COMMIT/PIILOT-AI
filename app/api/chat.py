@@ -55,13 +55,7 @@ async def chatbot(
     logger.info(f"[LangGraph 챗봇 시작] 질의: {request.question[:50]}..., conversation_id={request.conversation_id}")
 
     try:
-        # 초기 상태 구성
-        config = {
-            "configurable": {
-                "thread_id": request.conversation_id
-            }
-        }
-
+        # 초기 상태 구성 (체크포인터 없음 → config/thread_id 불필요)
         initial_state = {
             "user_question": request.question,
             "conversation_id": request.conversation_id,
@@ -84,27 +78,31 @@ async def chatbot(
         result = await run_in_thread(
             chatbot.invoke,
             initial_state,
-            config
         )
         graph_elapsed = time.time() - graph_start_time
         logger.debug(f"LangGraph 실행 완료 (소요 시간: {graph_elapsed:.2f}초)")
 
-        # 응답 구성
-        sources = []
+        # 응답 구성 (중복 제거)
+        sources_set = set()  # 중복 제거를 위한 set 사용
         if result.get("reranked_docs"):
             for doc in result["reranked_docs"]:
                 metadata = doc.get("metadata", {})
                 law_name = metadata.get("law_name", "")
                 article = metadata.get("article", "")
                 if law_name or article:
-                    sources.append(f"{law_name} {article}".strip())
+                    source_str = f"{law_name} {article}".strip()
+                    sources_set.add(source_str)
         elif result.get("vector_docs"):
             for doc in result["vector_docs"]:
                 metadata = doc.get("metadata", {})
                 law_name = metadata.get("law_name", "")
                 article = metadata.get("article", "")
                 if law_name or article:
-                    sources.append(f"{law_name} {article}".strip())
+                    source_str = f"{law_name} {article}".strip()
+                    sources_set.add(source_str)
+        
+        # set을 리스트로 변환 (순서는 보장되지 않지만 중복 제거됨)
+        sources = list(sources_set)
 
         total_elapsed = time.time() - total_start_time
         logger.info(f"[LangGraph 챗봇 완료] 총 소요 시간: {total_elapsed:.2f}초, query_type={result.get('query_type', 'general')}, answer_length={len(result.get('final_answer', ''))}자")

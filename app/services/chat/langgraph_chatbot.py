@@ -2,7 +2,6 @@
 LangGraph Self-RAG 챗봇 그래프 구성
 """
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 from app.services.chat.state import ChatbotState
 from app.services.chat.nodes.memory import load_memory, save_memory
 from app.services.chat.nodes.classification import classify
@@ -115,9 +114,9 @@ def create_chatbot_app():
             }
         )
         
-        # 컴파일 (in-memory checkpointer: 서버 재시작 시 대화 이력 초기화됨)
-        memory = MemorySaver()
-        app = workflow.compile(checkpointer=memory)
+        # 컴파일 (체크포인터 없음: 대화 이력은 _conversation_store에서 직접 관리)
+        # MemorySaver 제거 → 매 노드마다 full state 체크포인트 누적 방지
+        app = workflow.compile()
         
         # 그래프 시각화(mermaid) 저장 - 발표/문서용
         try:

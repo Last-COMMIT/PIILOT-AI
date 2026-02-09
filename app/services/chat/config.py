@@ -16,6 +16,6 @@ MAX_GENERATION_RETRIES = 2  # 최대 생성 재시도
 VECTOR_SEARCH_K = 20  # 초기 검색 개수 (많이 가져오기)
 RERANK_TOP_N = 5  # Rerank 후 최종 개수
 
-# 메모리 관리
-MAX_MESSAGES = 10  # 최대 대화 이력 개수
-MAX_TOKENS = 2000  # 최대 토큰 수 (대화 이력 제한용)
+# 메모리 관리 (최소화: 시연 안정성을 위해)
+MAX_MESSAGES = 2  # 최대 대화 이력 개수 (현재 질문 + 이전 답변만)
+MAX_TOKENS = 2000  # 최대 토큰 수 (대화 이력 제한용, 현재는 사용 안 함)

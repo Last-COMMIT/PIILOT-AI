@@ -25,6 +25,10 @@ def route_after_classify(state: ChatbotState) -> str:
     if query_type == "general":
         return "generate_answer"
     
+    # "both" 타입은 "both_query" 노드 이름으로 변환
+    if query_type == "both":
+        return "both_query"
+    
     return query_type
 
 
@@ -74,7 +78,8 @@ def route_after_relevance(state: ChatbotState) -> str:
     
     # 관련성 높음 → rerank
     if is_relevant and relevance_score >= RELEVANCE_THRESHOLD:
-        logger.info("관련성 충분, rerank로 이동")
+        logger.info(f"관련성 충분, rerank로 이동 (is_relevant={is_relevant}, score={relevance_score:.2f}, threshold={RELEVANCE_THRESHOLD})")
+        logger.debug(f"route_after_relevance 반환값: 'rerank'")
         return "rerank"
     
     # 재시도 가능 → vector_search (재검색 루프)

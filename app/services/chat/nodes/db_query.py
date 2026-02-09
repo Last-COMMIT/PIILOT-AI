@@ -22,9 +22,9 @@ def db_query(state: ChatbotState) -> ChatbotState:
         
         logger.info(f"DB 조회 시작: {user_question[:50]}...")
         
-        # 대화 맥락 구성
+        # 대화 맥락 구성 (최소화: 최근 1개만 - 시연 안정성을 위해)
         context = {
-            "previous_messages": messages[-3:] if len(messages) > 0 else []
+            "previous_messages": messages[-1:] if len(messages) > 0 else []  # 최근 1개만
         }
         
         # Text-to-SQL: SQL Agent 사용 (SQL 생성 + 실행 자동 처리)

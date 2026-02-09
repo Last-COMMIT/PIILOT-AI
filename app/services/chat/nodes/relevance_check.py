@@ -45,6 +45,10 @@ def check_relevance(state: ChatbotState) -> ChatbotState:
         
         logger.info(f"관련성 평가 시작: {len(vector_docs)}개 문서, retry_count={retry_count}")
         
+        # 문서 수가 비정상적으로 많으면 경고 (누적 버그 감지)
+        if len(vector_docs) > 1000:
+            logger.warning(f"⚠️ 문서 수가 비정상적으로 많습니다: {len(vector_docs)}개 (누적 버그 가능성)")
+        
         # 재검색 루프인 경우 카운터 증가 (라우팅 함수에서 증가하지 않으므로 여기서 처리)
         # 단, 이미 증가했다면 중복 증가 방지
         if retry_count < MAX_SEARCH_RETRIES:
