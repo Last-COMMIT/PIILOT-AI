@@ -45,6 +45,29 @@ def _text_pii_regions_to_by_frame(text_pii_regions: List[Dict[str, Any]]) -> Dic
 class VideoMasker:
     """영상 마스킹 처리 (얼굴 + 화면 텍스트 PII + 오디오)"""
 
+    @staticmethod
+    def _reencode_to_h264(video_path: str, temp: "TempFileManager") -> str:
+        """
+        OpenCV mp4v 코덱 영상을 H.264(libx264)로 재인코딩.
+        브라우저(Chrome 등)는 mp4v를 재생할 수 없으므로,
+        오디오가 없는 영상도 반드시 H.264로 변환해야 합니다.
+        """
+        try:
+            h264_path = temp.create(suffix='.mp4')
+            reencode_cmd = [
+                'ffmpeg', '-i', video_path,
+                '-c:v', 'libx264', '-preset', 'fast',
+                '-an',  # 오디오 없음
+                '-y', h264_path,
+            ]
+            subprocess.run(reencode_cmd, check=True, capture_output=True)
+            shutil.copy2(h264_path, video_path)
+            logger.info("mp4v → H.264 재인코딩 완료 (오디오 없는 영상)")
+            return video_path
+        except Exception as e2:
+            logger.warning(f"H.264 재인코딩 실패, mp4v 그대로 반환: {e2}")
+            return video_path
+
     def mask_video(
         self,
         video_path: str,
@@ -150,14 +173,14 @@ class VideoMasker:
                     shutil.copy2(temp_final_video, save_path)
                     final_video_path = save_path
                 except subprocess.CalledProcessError as e:
-                    logger.warning(f"오디오 처리 중 오류 발생 (비디오만 저장): {e}")
-                    final_video_path = save_path
+                    logger.warning(f"오디오 추출/합성 중 오류 발생 (비디오만 H.264 재인코딩): {e}")
+                    final_video_path = self._reencode_to_h264(save_path, temp)
                 except FileNotFoundError:
                     logger.warning("ffmpeg가 설치되어 있지 않습니다. 비디오만 저장됩니다.")
                     final_video_path = save_path
                 except Exception as e:
-                    logger.warning(f"오디오 처리 중 예상치 못한 오류 발생 (비디오만 저장): {e}", exc_info=True)
-                    final_video_path = save_path
+                    logger.warning(f"오디오 처리 중 예상치 못한 오류 발생 (비디오만 H.264 재인코딩): {e}", exc_info=True)
+                    final_video_path = self._reencode_to_h264(save_path, temp)
 
                 # 결과 읽기
                 with open(final_video_path, 'rb') as f:
