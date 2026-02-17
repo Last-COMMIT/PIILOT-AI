@@ -31,7 +31,7 @@ class VideoDetector:
         """OCR용 TextExtractor 지연 초기화"""
         if self._text_extractor is None:
             from app.services.file.extractors.text_extractor import TextExtractor
-            self._text_extractor = TextExtractor(use_gpu=False)
+            self._text_extractor = TextExtractor(use_gpu=True)
             logger.info("TextExtractor(EasyOCR) 초기화 완료 (화면 텍스트 PII 탐지용)")
         return self._text_extractor
 
