@@ -1,6 +1,7 @@
 """
 영상 개인정보 탐지 (Vision + LLM)
 """
+import tempfile
 from typing import Dict, List
 from app.services.file.image_detector import ImageDetector
 from app.services.file.audio_service import AudioDetector
