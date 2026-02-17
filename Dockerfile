@@ -7,6 +7,10 @@
 
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
+# 대화식 프롬프트 방지 (tzdata 등)
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Seoul
+
 # Python 3.11 설치
 RUN apt-get update && apt-get install -y \
     software-properties-common \
